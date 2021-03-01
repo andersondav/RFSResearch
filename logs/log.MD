@@ -320,3 +320,24 @@
 - ![](`.png) Potential Improvement for getting file size
   - Need to see if there is a reliable way to update the file size when making a size request via control(RFILESYS, ...)
   - Only way I can think of now is to loop through all open file devices to find a matching filename, and update that file device, but could be prone to error
+- ![](+.png) Read requests now return file size as well, and there is a field in each rfl's control block for current file size.
+
+## 3/1/2021
+### Notes
+- Will continue working on caching
+  - From [2/23 Issue #1](#issuesimprovements-2232021), want to be able to truncate requests that go beyond file size, and split requests that span multiple cache blocks.
+  - For now, will still limit read()s to 1024 bytes, so worst case is that it will span two cache blocks
+  - Need to fix rfs_check_cache() now that I'm doing this pre-processing inside rflread() itself.
+- Things to consider
+  - Remember: with this new implementation, all network requests will be for one full cache block, so its size must be RF_DATALEN and its position must be a multiple of RF_DATALEN.
+
+### Issues/Improvements 3/1/2021
+- ![](`.png) A potential side effect to caching is that since we will cache any bytes returned by a network request and all coyping into user buffer comes from the cache, we can properly vet data returned by the network before going into cache rather than copying it directly into the user buffer. This is potentially useful as it pertains to [2/3 Issue #2](#issuesimprovements-232021)
+- ![](`.png) Progress on caching
+  - rflread() now truncates read() requests so that they do not go beyond the most recently requested file size
+  - rflread() also splits read() requests into 2 sub-requests if the request requires info from 2 cache blocks instead of 1
+  - After creating the sub-requests, rflread() then loops through each of them, searching for the info in the cache. If not found, a network request for the needed cache block is made.
+  - (TODO) After this network request is made, the returned data should be put into the cache, then we try fetching from cache again.
+  - Also redid some index/offset calculations with bitwise operators instead of semi-complicated arithmetic
+
+### Questions

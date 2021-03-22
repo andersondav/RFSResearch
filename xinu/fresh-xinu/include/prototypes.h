@@ -456,6 +456,11 @@ extern	pri16	resume(pid32);
 /* in file rfsgetmode.c */
 extern	int32	rfsgetmode(char * );
 
+/* in file rfscache.c */
+extern uint32 byte_to_index(uint32, struct rfs_cpos *);
+extern uint32 rfs_cache_fetch(struct rflcblk *, uint32, char *, int32);
+extern uint32 rfs_cache_store(struct rflcblk *, struct rf_msg_rres *);
+
 /* in file rflclose.c */
 extern	devcall	rflclose(struct dentry *);
 

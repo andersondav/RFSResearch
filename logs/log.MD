@@ -169,7 +169,7 @@
      - Actually, for rsread, we specify the offset to read from on every read request, so even if the pointer was last set somewhere else, whenever we open the file on the Xinu side, from its perspective the position is at 0 and it will send this position to the server on every read.
    - This also begs the question of what if we have two file pointers to the same file, as in this implementation they would basically be sharing a common file pointer...
      - Well, technically this works because from the Xinu side every file pointer will have its own position, and we can just use the single file pointer on the server side to jump back and forth to wherever these pointers may be
-- ![](`.png) [2/10 Issue #3](#issuesimprovements-2102021)
+- ![](+.png) [2/10 Issue #3](#issuesimprovements-2102021)
   - Fixed the issue by adding some logic that, when the file is already open on the server and is a directory, that we will seek to the beginning of the directory using seekdir().
   - Potentially, could implement a similar logic to normal files where we specify a position to read from every time... actually this is already implemented
 
@@ -296,7 +296,7 @@
 - Might also be useful to divide read into multiple reads that each will access at most one block 
 
 ### Issues/Improvements 2/23/2021
-1. ![](-.png) Important case to consider: required data lies in multiple cache blocks
+1. ![](+.png) Important case to consider: required data lies in multiple cache blocks
    - ex: user wants to read 1024 bytes starting from position 512, which requires 512 bytes from block 1 and 512 bytes from block 2
    - Proposed solution: we will split this into two read requests of size 512 each that fill in different parts of the buffer
    - Future problem to consider: what if user wants to read more than 1024 bytes (may require > 2 blocks)
@@ -304,6 +304,7 @@
    - Perhaps more problems if block 2 is in cache already, but block 1 is not
    - Even more difficult is what if file is only 1024 bytes long?
      - May be useful in this case to retrieve file size every time, and truncate read request to available bytes before looking in cache
+    - addressed in [3/13](#issuesimprovements-3132021)
 
 ### Questions
 - Is it a bad idea to use recursive calls in systems programming, due to the potential of running out of stack space?
@@ -315,12 +316,12 @@
 - Also, when rflread is called, I will split the request into potentially multiple smaller requests so that each of these requests will only rely on data from one cache block 
 
 ### Issues/Improvements 2/24/2021
-- ![](-.png) Problem with concurrent access
+1. ![](-.png) Problem with concurrent access
   - If I try to read from Xinu side, then edit file in vim, then read again, changes are not reflected
-- ![](`.png) Potential Improvement for getting file size
+2. ![](`.png) Potential Improvement for getting file size
   - Need to see if there is a reliable way to update the file size when making a size request via control(RFILESYS, ...)
   - Only way I can think of now is to loop through all open file devices to find a matching filename, and update that file device, but could be prone to error
-- ![](+.png) Read requests now return file size as well, and there is a field in each rfl's control block for current file size.
+3. ![](+.png) Read requests now return file size as well, and there is a field in each rfl's control block for current file size.
 
 ## 3/1/2021
 ### Notes
@@ -332,12 +333,145 @@
   - Remember: with this new implementation, all network requests will be for one full cache block, so its size must be RF_DATALEN and its position must be a multiple of RF_DATALEN.
 
 ### Issues/Improvements 3/1/2021
-- ![](`.png) A potential side effect to caching is that since we will cache any bytes returned by a network request and all coyping into user buffer comes from the cache, we can properly vet data returned by the network before going into cache rather than copying it directly into the user buffer. This is potentially useful as it pertains to [2/3 Issue #2](#issuesimprovements-232021)
-- ![](`.png) Progress on caching
-  - rflread() now truncates read() requests so that they do not go beyond the most recently requested file size
-  - rflread() also splits read() requests into 2 sub-requests if the request requires info from 2 cache blocks instead of 1
-  - After creating the sub-requests, rflread() then loops through each of them, searching for the info in the cache. If not found, a network request for the needed cache block is made.
-  - (TODO) After this network request is made, the returned data should be put into the cache, then we try fetching from cache again.
-  - Also redid some index/offset calculations with bitwise operators instead of semi-complicated arithmetic
+1. ![](+.png) A potential side effect to caching is that since we will cache any bytes returned by a network request and all coyping into user buffer comes from the cache, we can properly vet data returned by the network before going into cache rather than copying it directly into the user buffer. This is potentially useful as it pertains to [2/3 Issue #2](#issuesimprovements-232021)
+2. ![](+.png) Progress on caching
+    - rflread() now truncates read() requests so that they do not go beyond the most recently requested file size
+    - rflread() also splits read() requests into 2 sub-requests if the request requires info from 2 cache blocks instead of 1
+    - After creating the sub-requests, rflread() then loops through each of them, searching for the info in the cache. If not found, a network request for the needed cache block is made.
+    - (TODO) After this network request is made, the returned data should be put into the cache, then we try fetching from cache again.
+    - Also redid some index/offset calculations with bitwise operators instead of semi-complicated arithmetic
+    - finished, see [3/13](#issuesimprovements-3132021)
+
+## 3/3/2021
+### Notes
+
+### Issues/Improvements 3/3/2021
+1. ![](`.png) Progress on caching
+    - Thing to consider: when we make our first read request, we do not know the file size yet... potential solution could be to make a file size request to populate this field.
+    - Successfully implemented storing a block in the cache
+    - Tested that a basic use case of rflread() works with caching!
+    - To do:
+      - revise rfs_cache_store() to utilize buffered memory instead of getmem()
+      - add code to handle what happens when we need to utilize the rfl_cache_list (Implemented and tested in [3/17](#issuesimprovements-3172021))
+      - more testing/debugging, particularly for requests that don't use index 0 and/or offset 0 (Implemented and tested partially in [3/17](#issuesimprovements-3172021))
 
 ### Questions
+- In rflread(), why do we wait() and signal() the Rf_data mutex? We do not interact with the Rf_data at all until we make the rfscomm() call, so why not just put the wait() and signal() calls in there to reduce the size of the critical section?
+
+## 3/8/2021
+### Notes
+- Continuing to test caching implementation
+  - Basic reading: works well
+  - Reading from a partially filled block: works
+
+### Issues/Improvements 3/8/2021
+1. ![](+.png) Progress on caching
+    - Caching works with basic read operations. We can correctly return requested data when the data is not in the cache (need to send network request), or when it has already been stored in the cache.
+    - Also fixed an error with rfs_cache_store where we didn't convert file pos in response to host order. Now the info is stored in the correct cache block.
+    - Spent some time making helper functions to generate test messages so it is easier to debug and create tests
+    - To-do: still need to test a read operation that utilizes multiple cache blocks (done: see [3/13](#issuesimprovements-3132021))
+
+### Questions
+
+## 3/11/2021
+### Notes
+- Continuing testing
+  - Fulfilling a read that spans over two cache blocks
+    - doesn't seem to error out, but the message returned is slightly different from expected output, not sure why
+
+### Issues/Improvements 3/11/2021
+1. ![](+.png) Need to figure out why message output is slightly different from expected output.
+    - maybe cache_store copies a byte twice...
+    - or in cache_fetch our copying of bytes into buffer is off by one byte
+    - fixed in [3/13 Issue #1](#issuesimprovements-3132021)
+
+## 3/13/2021
+### Notes
+- Continued testing
+  - Fixed problem from 3/11, can now read from cached data spanning multiple blocks without server even being on.
+- Implementing cache_list
+  - For the future when we need to evict blocks, it will probably be useful if this is a double linked list, so I will update the definition.
+  - I think (for now at least) I will insert blocks into the list in sorted order, so that we don't have to iterate over all the blocks every time we fetch from the list.
+    - In the future, it might be worth placeing in a binary tree
+
+### Issues/Improvements 3/13/2021
+1. ![](+.png) [3/11 Issue #1](#issuesimprovements-3112021)
+    - problem was that the count on the first request was off by one, so read from first block read one block too few and so the read from second block read one block too much
+2. ![](+.png) Cache List Implementation
+    - working on implementing the cache list, have a basic implementation that seems to work on a very basic test
+    - still need to test multi-block reads from list
+    - Finished in [3/15](#issuesimprovements-3152021) and [3/17](#issuesimprovements-3172021)
+
+## 3/15/2021
+
+### Issues/Improvements 3/15/2021
+1. ![](+.png) Testing cache list ([3/13 Issue #2](#issuesimprovements-3132021))
+    - Testing basic read from cache list...done
+    - Testing that sorted insertion works correctly...done
+    - Finished in [3/17](#issuesimprovements-3172021)
+
+## 3/17/2021
+### Notes
+- Finishing up tests for the cache list
+- Investigating how the buffer allocation works
+  - we can use mkbufpool(bufsize, numbufs) to allocate a set number of cache blocks beforehand. It returns the poolid of the buffers, which we'll need to save somewhere (probably in Rf_data)
+  - then we can use getbuf(poolid) to retrieve one cache block at a time, and freebuf(bufaddr) to return the block to the buffer pool
+- How should we use buffer allocation?
+  - Allocating is easy--just replace the calls to getmem() with getbuf() and in rfsinit() we can use mkbufpool() to initialize the buffer pool
+  - De-allocating is the hard part: when to de-allocate a buffer pool
+    - Option 1: whenever a file is closed, go through all its cache array and cache list and de-allocate all allocated buffers
+      - could take a while if the file had a lot of cached data
+    - Option 2: LRU
+      - maintain a list of most recently used cache blocks, will probably also be stored in Rf_data
+      - the head of the list will contain the most recently used cache block, and the tail will contain the least recently used cache block
+      - We will keep a count (in Rf_data) of how many blocks have been allocated so far. Once that count reaches the number of buffers originally pre-allocated, we will use the LRU list to determine which block to evict and replace.
+      - With this, we don't really need to manually evict all blocks of a closed file, as those will naturally become less recently used since that file is closed.
+- How to implement LRU list
+  - since all the remote files are sharing buffers, they should also share the LRU list, so it should reside in Rf_data
+  - to easily remove items from the list, we should make the list doubly linked
+  - we should store pointers to next and prev in the list in the block itself, so the block can easily update these whenever it is fetched
+    - for consistency, might be worth it to place the next and prev for the rfl_cache_list also in the block's definition itself, and just set both to NULL if using the array portion
+  - Rf_data should keep the current head and tail of the list, because new items get added at the head and items get evicted from the tail end
+  - As mentioned above, Rf_data should keep count of the number of allocated blocks, which is also the number of blocks in the LRU list
+  - Whenever a block is fetched, it gets put at the head of the list
+    - If the block is just now being allocated for the first time, it will get added at the head of the list immediately.
+    - If the block had already existed before the current fetch, it will be removed from its current spot in the list, and then re-inserted at the head of the list.
+    - Can implement this by rfs_cache_store() just allocating the buffer and setting its next and prev to NULL, and rfs_cache_fetch() handling all LRU list operations. If the block's next and prev are both NULL, we know it hasn't been added to the list yet, so just insert it at the front. If either of these are not NULL, we know it's in the list somewhere currently, so just remove it then re-add.
+  - When rfs_cache_store() tries to allocate but sees that the limit has been reached, we'll evict a block.
+    - We'll take the block at the tail of the list as the block to evict.
+    - We don't actually need to de-allocate it, as it will just be re-allocated again immediately since we are evicting because a new block neeeds to be allocated.
+    - If it's in the array portion of the cache, we can use the file_start field to find the correct index and set that entry to NULL. We'll also need and extra field for each block to indicate which remote file they are associated with if we are going to go this route.
+    - If it's in the list portion of the cache, we can just remove it.
+    - After this, we just give this evicted block to rfs_cache_store() and it will populate the block with the new info, and then rfs_cache_fetch() will add it to the LRU list in the subsequent fetch.
+- Something to think about: how will writes affect all of these mechanisms?
+
+### Issues/Improvements 3/17/2021
+1. ![](+.png) Testing cache list[3/13 Issue #2](#issuesimprovements-3132021)
+    - Testing that read across multiple blocks in list works correctly...done
+    - Testing that read across last block in arr and first block in list works correctly...done
+
+### Questions
+- How to decide what's a good number of blocks to buffer via array?
+  - Too small may cause us to resort to linked list, which takes time to search through
+  - Too large may take too much of a toll memory-wise
+- What's a good number of cache blocks to pre-allocate with the buffer pool
+  - Too small and we'll have to evict a lot and may not be able to cache an adequate number of blocks
+  - To large and it takes a strain on the memory of the system
+
+## 3/19/2021
+### Notes
+- Beginning to implement LRU list
+
+### Issues/Improvements 3/18/2021
+1. ![](-.png) Implementing the LRU list
+    - Going to consolidate cache linked list into the rfs_cblock definition itself
+    - Updated some variable names in code
+    - New variable for rfs_cblock: devnum - gets initialized in rfs_cache_store
+      - Verified that we can access a block through it's devnum
+    - Need to start implementing lru list addition and eviction procedures
+
+## 3/22/2021
+### Notes
+- Continuing to implement LRU list
+
+### Issues/Improvements 3/22/2021

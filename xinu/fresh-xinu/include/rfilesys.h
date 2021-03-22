@@ -38,6 +38,11 @@ struct	rfdata	{
 	int32	rf_udp_slot;		/* UDP slot to use		*/
 	sid32	rf_mutex;		/* Mutual exclusion for access	*/
 	bool8	rf_registered;		/* Has UDP port been registered?*/
+
+	/* the following fields are for caching */
+	uint32 max_cblocks;			/* the maximum number of cached blocks that can be allocated at once */
+	struct rfs_cblock * lru_head;	/* the head (most recently used) cache block */
+	struct rfs_cblock * lru_tail; 	/* the tail (least recently used) cache block */
 };
 
 extern	struct	rfdata	Rf_data;
@@ -57,8 +62,8 @@ struct	rflcblk	{
 
 	/* used for caching purposes */
 	uint32 rfsize;								/* file size */
-	struct rfl_block *rfl_cache[MAX_BLOCKS];  /* the cache for this remote file */
-	struct rfs_cache_list_node *rfl_cache_list; /* linked list for blocks that lie at indices MAX_BLOCKS and beyond */
+	struct rfs_cblock *cache [MAX_RFS_CBLOCKS];  /* the array portion of the cache for this remote file */
+	struct rfs_cblock *cache_list; 		/* linked list portion of the cache for this remote file */
 };
 
 extern	struct	rflcblk	rfltab[];	/* Remote file control blocks	*/

@@ -26,13 +26,16 @@ devcall	rflinit(
 	}
 	rflptr->rfpos = rflptr->rfmode = 0;
 
+	/* initialize file size to 0 */
+	rflptr->rfsize = 0;
+
 	/* initialize cache chunks to null */
-	for (i=0; i<MAX_BLOCKS; i++) {
-		rflptr->rfl_cache[i] = NULL;
+	for (i=0; i<MAX_RFS_CBLOCKS; i++) {
+		rflptr->cache[i] = NULL;
 	}
 
 	/* initialize cache list to null */
-	rflptr->rfl_cache_list = NULL;
+	rflptr->cache_list = NULL;
 
 	return OK;
 }

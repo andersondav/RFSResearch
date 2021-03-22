@@ -19,5 +19,6 @@ int	strncmp(
             return 0;
         }
     }
+
     return (n < 0 ? 0 : *s1 - *--s2);
 }

@@ -24,7 +24,15 @@ process	main(void)
 	// size_test();
 	// directory_test();
 	// remove_dir_test();
-	updated_sizing_test();
+	// updated_sizing_test();
+	// cache_test1();
+	// cache_test2();
+	// cache_test3();
+	// cache_test4();
+	// cache_test5();
+	// cache_test6();
+	// cache_test7();
+	devnum_test();
 
 	// kprintf("Re-opening newfile2, but now it will be the only file open and should take the first spot in the rfctlblk array");
 	// dp2 = open(RFILESYS, "newfile2", "rw");

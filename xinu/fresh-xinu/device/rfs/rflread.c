@@ -139,7 +139,6 @@ devcall	rflread (
 	uint32  bytes_retrieved;		/* Bytes retrieved */
 	uint32  positions[3];			/* positions of (potentially multiple) requests */
 	uint32  counts[3];				/* counts of (potentially multiple) requests */
-	uint32  i;						/* used for looping */
 
 	/* Wait for exclusive access */
 
@@ -170,6 +169,24 @@ devcall	rflread (
 		return SYSERR;
 	}
 
+	/* if file size is 0, then that means it may not be initialized, so we'll make a file size request */
+	if (rfptr->rfsize == 0) {
+		/* signal mutex so rfscontrol() can acquire it */
+		signal(Rf_data.rf_mutex);
+
+		/* call rfscontrol() */
+		rfscontrol(devptr, RFS_CTL_SIZE, 0, 0);
+
+		/* re-acquire mutex */
+		wait(Rf_data.rf_mutex);
+	}
+
+	/* if file size is still 0 after making this request, then no data to read */
+	if (rfptr->rfsize == 0) {
+		signal(Rf_data.rf_mutex);
+		return 0;
+	}
+
 	/* truncate request so it does not go beyond current file size */
 	if (rfptr->rfpos + count > rfptr->rfsize) {
 		/* reduce count to be rfsize - rfpos bytes */
@@ -186,13 +203,13 @@ devcall	rflread (
 	if ((rfptr->rfpos + count) / RF_DATALEN > rfptr->rfpos / RF_DATALEN) {
 		/* request 1 will be from [rfpos, ((rfpos / RFDATALEN)+1)*RFDATALEN-1]) */
 		positions[1] = rfptr->rfpos;
-		// counts[1] = (rfptr->rfpos / RF_DATALEN)*RF_DATALEN + RF_DATALEN-1 - rfptr->rfpos;
-		counts[1] = (rfptr->rfpos & (~RF_DATALEN)) + RF_DATALEN-1 - rfptr->rfpos;
+		counts[1] = (rfptr->rfpos / RF_DATALEN)*RF_DATALEN + RF_DATALEN - rfptr->rfpos;
+		// counts[1] = (rfptr->rfpos & (~(RF_DATALEN-1))) + RF_DATALEN-1 - rfptr->rfpos;
 
 		/* request 2 will be for [(rfptr->rfpos / RF_DATALEN)*RF_DATALEN + RF_DATALEN, (rfptr->rfpos / RF_DATALEN)*RF_DATALEN + RF_DATALEN + count - counts[0]] */
-		// positions[2] = (rfptr->rfpos / RF_DATALEN)*RF_DATALEN + RF_DATALEN;
-		positions[2] = (rfptr->rfpos & (~RF_DATALEN)) + RF_DATALEN;
-		counts[2] = count - counts[0];
+		positions[2] = (rfptr->rfpos / RF_DATALEN)*RF_DATALEN + RF_DATALEN;
+		// positions[2] = (rfptr->rfpos & (~(RF_DATALEN-1))) + RF_DATALEN;
+		counts[2] = count - counts[1];
 	}
 	else {
 		/* request 1 (of 1) will be from [rfpos, rfpos + count] */
@@ -203,13 +220,18 @@ devcall	rflread (
 		counts[2] = NULL;
 	}
 
+	#if RFS_CACHE_DEBUG
+	kprintf("RFL_READ: Request 1 has file pos %d, count %d\n", positions[1], counts[1]);
+	kprintf("RFL_READ: Request 2 has file pos %d, count %d\n", positions[2], counts[2]);
+	#endif
+
 	positions[0] = 0;
 	counts[0] = 0;
 	bytes_retrieved = 0;
 	/* loop through all valid requests */
 	for (i = 1; i < 3; i++) {
 		/* break once we reach an empty request */
-		if (positions[i] == NULL || counts[i] == NULL) {
+		if (positions[i] == NULL && counts[i] == NULL) {
 			break;
 		}
 
@@ -221,8 +243,11 @@ devcall	rflread (
 			continue;
 		}
 
-		/* Data not found in cache, form read request */
+		#if RFS_CACHE_DEBUG
+		kprintf("RFLREAD: Data for request %d not cached, going to make a request...\n", i);
+		#endif
 
+		/* Data not found in cache, form read request */
 		msg.rf_type = htons(RF_MSG_RREQ);
 		msg.rf_status = htons(0);
 		msg.rf_seq = 0;			/* Rfscomm will set sequence	*/
@@ -240,6 +265,10 @@ devcall	rflread (
 		/* request will be for a full cache block */
 		msg.rf_pos = htonl((positions[i] / RF_DATALEN) * RF_DATALEN); /* Set file position		*/
 		msg.rf_len = htonl(RF_DATALEN);	/* Set count of bytes to read	*/
+
+		#if RFS_CACHE_DEBUG
+		kprintf("RFL_READ: Making network request for %d bytes from pos %d\n", RF_DATALEN, (positions[i] / RF_DATALEN) * RF_DATALEN);
+		#endif
 
 		/* Send message and receive response */
 
@@ -269,35 +298,20 @@ devcall	rflread (
 		/* TODO: Cache data received from request and re-fetch from cache */
 		
 		/* Code for copying data to cache goes here */
-		// /* Copy data to application buffer and update file position */
-	
-		// /* Determine number of bytes to copy into buffer */
-		// uint32 copy_length;
-		// if (ntohl(resp.rf_len) > count) {
-		// 	copy_length = count;
-		// }
-		// else {
-		// 	copy_length = ntohl(resp.rf_len);
-		// }
-
-		// /* 
-		// * Instead of always copying reply length,
-		// * copy as much data without overflowing the buffer.
-		// */
-		// // for (i=0; i<ntohl(resp.rf_len); i++) {
-		// // 	*buff++ = resp.rf_data[i];
-		// // }
-		// // rfptr->rfpos += ntohl(resp.rf_len);
-		// for (i=0; i<copy_length; i++) {
-		// 	*buff++ = resp.rf_data[i];
-		// }
-		// rfptr->rfpos += copy_length;
+		retval = rfs_cache_store(rfptr, &resp);
+		if (retval == SYSERR) {
+			signal(Rf_data.rf_mutex);
+			return SYSERR;
+		}
 
 		/* Re-fetch data from cache */
 		bytes_retrieved = rfs_cache_fetch(rfptr, positions[i], buff + counts[i-1], counts[i]);
 
 		if (bytes_retrieved != counts[i]) {
 			/* can't reach data even after making request to data, there is a problem */
+			#if RFS_CACHE_DEBUG
+			kprintf("RFL_READ: Request %d - only found %d bytes - can't reach data even after making request to data, there is a problem\n", i, bytes_retrieved);
+			#endif
 			signal(Rf_data.rf_mutex);
 			return SYSERR;
 		}

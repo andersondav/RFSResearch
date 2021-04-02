@@ -29,6 +29,8 @@ devcall	rflinit(
 	/* initialize file size to 0 */
 	rflptr->rfsize = 0;
 
+	/* the rest of these operations need to be done only if caching is enabled */
+	#if RFS_CACHING_ENABLED
 	/* initialize cache chunks to null */
 	for (i=0; i<MAX_RFS_CBLOCKS; i++) {
 		rflptr->cache[i] = NULL;
@@ -36,6 +38,6 @@ devcall	rflinit(
 
 	/* initialize cache list to null */
 	rflptr->cache_list = NULL;
-
+	#endif
 	return OK;
 }

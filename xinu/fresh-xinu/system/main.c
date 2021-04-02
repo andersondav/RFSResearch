@@ -32,7 +32,9 @@ process	main(void)
 	// cache_test5();
 	// cache_test6();
 	// cache_test7();
-	devnum_test();
+	// devnum_test();
+	// lru_test1();
+	trunc_test();
 
 	// kprintf("Re-opening newfile2, but now it will be the only file open and should take the first spot in the rfctlblk array");
 	// dp2 = open(RFILESYS, "newfile2", "rw");

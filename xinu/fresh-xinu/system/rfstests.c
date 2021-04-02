@@ -64,6 +64,7 @@ void basic_test() {
 	kprintf("The read message from newfile was %s\n", read_msg);
 
     freemem(read_msg, 64);
+    close(dp);
     
     kprintf("-----------------Finished basic_test-----------------\n");
     return;
@@ -153,6 +154,7 @@ void delete_test() {
     kprintf("\n");
 
     freemem(read_msg, 64);
+    close(dp);
     
     kprintf("-----------------Finished %s-----------------\n", test_name);
     return;
@@ -193,6 +195,9 @@ void multi_open_test() {
     memset(read_msg, 0, 64);
     read(dp, read_msg, 64);
     kprintf("The read message from newfile was %s\n", read_msg);
+
+    freemem(read_msg, 64);
+    close(dp);
     
     kprintf("-----------------Finished multi_open_test-----------------\n");
     return;
@@ -242,6 +247,9 @@ void size_test() {
     size = control(dp, RFS_CTL_SIZE, 0, 0);
     kprintf("The returned size is %u bytes, should be %u\n", size, SYSERR);
 
+    freemem(read_msg, 64);
+    close(dp);
+
     kprintf("-----------------Finished size_test-----------------\n");
     return;
 }
@@ -290,6 +298,11 @@ void directory_test() {
         memset(read_msg, 0, 64);
         read(dp2, read_msg, 64);
     }
+
+    freemem(read_msg, 64);
+    close(dp);
+    close(dp2);
+
     kprintf("-----------------Finished directory_test-----------------\n");
 }
 
@@ -341,6 +354,7 @@ void remove_dir_test() {
     kprintf("\n");
 
     freemem(read_msg, 64);
+    close(dp);
 
     kprintf("We will now try to delete this directory...\n");
     status = control(RFILESYS, RFS_CTL_RMDIR, (int) "mydirtoremove", 0);
@@ -395,6 +409,9 @@ void updated_sizing_test() {
     memset(read_msg, 0, 64);
     read(dp, read_msg, 64);
     kprintf("The read message from %s was %s\n", filename, read_msg);
+
+    freemem(read_msg, 64);
+    close(dp);
     
     kprintf("-----------------Finished %s-----------------\n", test_name);
     return;
@@ -439,6 +456,8 @@ void cache_test1() {
     kprintf("Read %s\n", read_msg);
 
     freemem(read_msg, 64);
+    close(dp);
+
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
 
@@ -498,6 +517,8 @@ void cache_test2() {
     kprintf("Read %s\n", read_msg);
 
     freemem(read_msg, 64);
+    close(dp);
+
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
 
@@ -651,6 +672,8 @@ void cache_test4() {
     kprintf("\n");
 
     freemem(read_msg, 512);
+    close(dp);
+
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
 
@@ -705,6 +728,8 @@ void cache_test5() {
     kprintf("\n");
 
     freemem(read_msg, 512);
+    close(dp);
+
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
 
@@ -765,8 +790,12 @@ void cache_test6() {
         // kprintf("\n");
 
         kprintf("Comparison result: %s\n", strncmp(read_msg, &message[read_start], 512) == 0 ? "Equal!" : "Not equal!");
+
         freemem(read_msg, 512);
     }
+
+    
+    close(dp);
 
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
@@ -834,6 +863,7 @@ void cache_test7() {
     kprintf("Comparison result: %s\n", strncmp(read_msg, &message[read_start], 750) == 0 ? "Equal!" : "Not equal!");
 
     freemem(read_msg, 750);
+    close(dp);
 
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
@@ -909,6 +939,179 @@ void devnum_test() {
     kprintf("Address of block calculated from its devnum: %d\n", (int) (&rfltab[desired_block->rfl_devnum - RFILE0])->cache[desired_block->file_start / RF_DATALEN]);
 
     freemem(read_msg, 750);
+    close(dp);
+
+    kprintf("-----------------Finished %s-----------------\n", test_name);
+}
+
+/*
+ *  lru_test1 - a test that tests the basic functionality of the rfs's lru list
+ */
+void lru_test1() {
+    char * test_name = "lru_test1";
+    char * filename = "lru_test1_file";
+    char * filename2 = "lru_test1_file2";
+    char * filename3 = "lru_test1_file3";
+
+    /* In the array portion of the cache there are 10 blocks of size 1024 */
+    /* so anything beyond 10*1024 = 10240 bytes will be cached in the list portion */
+    uint32 num_blocks = 5;
+    char * message = message_generator(10240 + num_blocks*1024-57, filename);
+    char * message2 = message_generator(10240 + num_blocks*1024-89, filename2);
+    char * message3 = message_generator(10240 + num_blocks*1024-43, filename3);
+    kprintf("-----------------Beginning %s-----------------\n", test_name);
+
+    kprintf("Opening file named %s\n", filename);
+    uint32 dp = open(RFILESYS, filename, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    kprintf("Opening file named %s\n", filename2);
+    uint32 dp2 = open(RFILESYS, filename2, "rw");
+    if (dp2 == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    kprintf("Opening file named %s\n", filename3);
+    uint32 dp3 = open(RFILESYS, filename3, "rw");
+    if (dp3 == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    uint32 status;
+    kprintf("Going to write messages into the files...\n");
+    /* writing 1024 bytes at a time */
+    for (int i = 0; i < 10+num_blocks; i++) {
+        status = write(dp, message+(i*1024), 1024 <= strlen(message+(i*1024)) ? 1024 : strlen(message+(i*1024)));
+        if (status == SYSERR) {
+            kprintf("Error with write()!\n");
+            return;
+        }
+    }
+
+    /* writing 1024 bytes at a time */
+    for (int i = 0; i < 10+num_blocks; i++) {
+        status = write(dp2, message2+(i*1024), 1024 <= strlen(message2+(i*1024)) ? 1024 : strlen(message2+(i*1024)));
+        if (status == SYSERR) {
+            kprintf("Error with write()!\n");
+            return;
+        }
+    }
+
+    /* writing 1024 bytes at a time */
+    for (int i = 0; i < 10+num_blocks; i++) {
+        status = write(dp3, message3+(i*1024), 1024 <= strlen(message3+(i*1024)) ? 1024 : strlen(message3+(i*1024)));
+        if (status == SYSERR) {
+            kprintf("Error with write()!\n");
+            return;
+        }
+    }
+
+    /* reading blocks from both remote files */
+    uint32 read_locs[9][2] = { {0, 3}, {1, 7}, {2, 4}, {1, 8}, {0, 1}, {2, 8}, {0, 3}, {1, 13}, {2, 9} };
+    char * read_msg = getmem(512);
+
+    for (uint32 i = 0; i < 9; i++) {
+        uint32 file = read_locs[i][0] + RFILE0;
+        uint32 byte = read_locs[i][1] * RF_DATALEN;
+
+        memset(read_msg, 0, 512);
+        kprintf("Reading file %d, block %d:\n", read_locs[i][0], read_locs[i][1]);
+        char *comp_result;
+        if (read_locs[i][0] == 0) {
+            seek(dp, byte);
+            read(dp, read_msg, 512);
+            comp_result = strncmp(read_msg, &message[byte], 512) == 0 ? "Equal" : "Not equal";
+        }
+        else if (read_locs[i][0] == 1) {
+            seek(dp2, byte);
+            read(dp2, read_msg, 512);
+            comp_result = strncmp(read_msg, &message2[byte], 512) == 0 ? "Equal" : "Not equal";
+        }
+        else {
+            seek(dp3, byte);
+            read(dp3, read_msg, 512);
+            comp_result = strncmp(read_msg, &message3[byte], 512) == 0 ? "Equal" : "Not equal";
+        }
+
+        kprintf("Comparison result: %s\n", comp_result);
+        print_lru_list();
+    }
+
+    
+    freemem(read_msg, 512);
+    close(dp);
+    close(dp2);
+
+    kprintf("-----------------Finished %s-----------------\n", test_name);
+}
+
+/* 
+ *  trunc_test - a test of improved truncation functionality
+ */
+void trunc_test() {
+    char * test_name = "trunc_test";
+    char * filename = "trunc_test";
+    char * message = message_generator(2048, filename);
+    kprintf("-----------------Beginning %s-----------------\n", test_name);
+
+    kprintf("Opening file named %s\n", filename);
+    uint32 dp = open(RFILESYS, filename, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    kprintf("Going to write message into the file...\n");
+
+    /* first 1024 bytes */
+    uint32 status = write(dp, message, 1024);
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    /* last 1024 bytes */
+    status = write(dp, message+1024, 1024);
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    kprintf("Seeking to position 900...\n");
+    seek(dp, 900);
+
+    char * read_msg = getmem(512);
+	memset(read_msg, 0, 512);
+
+    kprintf("Reading bytes 900 through 1411...\n");
+    status = read(dp, read_msg, 512);
+    if (status == SYSERR) {
+        kprintf("Error with read()!\n");
+        return;
+    }
+
+    kprintf("Comparison result: %s\n", strncmp(&message[900], read_msg, 512) == 0 ? "Equal" : "Not equal");
+
+    kprintf("File size is %d\n", control(RFILESYS, RFS_CTL_SIZE, (int32) filename, 0));
+
+    kprintf("Truncating file to be 67 bytes...\n");
+    control(RFILESYS, RFS_CTL_TRUNC, (int32) filename, 67);
+    
+    kprintf("New file size is %d\n", control(dp, RFS_CTL_SIZE, 0, 0));
+
+    kprintf("Truncating file to be 105 bytes...\n");
+    control(dp, RFS_CTL_TRUNC, 105, 0);
+
+    kprintf("New file size is %d\n", (&rfltab[0])->rfsize);
+    kprintf("New file size is %d\n", control(dp, RFS_CTL_SIZE, 0, 0));
+
+    freemem(read_msg, 512);
+    close(dp);
 
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }

@@ -26,6 +26,10 @@ devcall	rflclose (
 
 	/* Mark device closed */
 
+	/* TODO: add any needed code to clear up cache prior to next rfl allocation */
+	/* reset file size to 0 */
+	rfptr->rfsize = 0;
+
 	rfptr->rfstate = RF_FREE;
 	signal(Rf_data.rf_mutex);
 	return OK;

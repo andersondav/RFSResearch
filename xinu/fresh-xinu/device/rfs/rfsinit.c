@@ -35,5 +35,19 @@ devcall	rfsinit(
 
 	Rf_data.rf_registered = FALSE;
 
+	/* the following initialization needs to be done only if caching is enabled */
+	#if RFS_CACHING_ENABLED
+	/* set-up for LRU list of cached blocks */
+	Rf_data.lru_head = NULL;
+	Rf_data.lru_tail = NULL;
+	Rf_data.num_cblocks = 0;
+
+	/* initialize buffer pool for allocable cache blocks */
+	Rf_data.buffpoolid = mkbufpool(sizeof(struct rfs_cblock), MAX_CBLOCKS_ALLOCABLE);
+	if (Rf_data.buffpoolid == SYSERR) {
+		panic("Cannot allocate buffer pool");
+	}
+	#endif
+
 	return OK;
 }

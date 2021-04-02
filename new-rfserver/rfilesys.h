@@ -268,6 +268,7 @@ struct	rf_msg_dres	{		/* Remote file delete response	*/
 #pragma pack(2)
 struct	rf_msg_treq	{		/* Remote file truncate request	*/
 	RF_MSG_HDR			/* Header fields		*/
+	uint32 trunc_size;		/* (Addition to original implementation) Size to truncate file to */
 };
 #pragma pack()
 

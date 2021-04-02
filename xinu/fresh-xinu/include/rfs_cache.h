@@ -1,9 +1,15 @@
 /* rfs_cache.h - Contains constants and data structure definitions relevant to caching for the remote file system */
-#define RFS_CACHE_DEBUG 0
+#define RFS_CACHING_ENABLED 1 /* value of 1 will enable caching of requested data */
+
+#define RFS_CACHE_DEBUG 0 /* value of 1 will print debug messages */
 /* Constants */
 
 #ifndef MAX_RFS_CBLOCKS
 #define MAX_RFS_CBLOCKS 10 /* maximum number of cached blocks a remote file can access through direct indexing */
+#endif
+
+#ifndef MAX_CBLOCKS_ALLOCABLE
+#define MAX_CBLOCKS_ALLOCABLE 5
 #endif
 
 #ifndef RFS_CBLOCK_SIZE

@@ -457,7 +457,7 @@ extern	pri16	resume(pid32);
 extern	int32	rfsgetmode(char * );
 
 /* in file rfscache.c */
-extern uint32 byte_to_index(uint32, struct rfs_cpos *);
+extern void print_lru_list();
 extern uint32 rfs_cache_fetch(struct rflcblk *, uint32, char *, int32);
 extern uint32 rfs_cache_store(struct rflcblk *, struct rf_msg_rres *);
 
@@ -478,6 +478,8 @@ extern	devcall	rflputc(struct dentry *, char );
 
 /* in file rflread.c */
 extern	devcall	rflread(struct dentry *, char *, int32 );
+extern devcall rflread_cached(struct dentry *, char *, int32);
+extern devcall rflread_wrapper(struct dentry *, char *, int32);
 
 /* in file rflseek.c */
 extern	devcall	rflseek(struct dentry *, uint32 );

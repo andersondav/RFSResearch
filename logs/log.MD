@@ -458,20 +458,180 @@
   - Too small and we'll have to evict a lot and may not be able to cache an adequate number of blocks
   - To large and it takes a strain on the memory of the system
 
-## 3/19/2021
+## 3/18/2021
 ### Notes
 - Beginning to implement LRU list
 
 ### Issues/Improvements 3/18/2021
-1. ![](-.png) Implementing the LRU list
+1. ![](+.png) Implementing the LRU list
     - Going to consolidate cache linked list into the rfs_cblock definition itself
     - Updated some variable names in code
     - New variable for rfs_cblock: devnum - gets initialized in rfs_cache_store
       - Verified that we can access a block through it's devnum
     - Need to start implementing lru list addition and eviction procedures
+    - Completed on [3/28](#issuesimprovements-3282021)
 
 ## 3/22/2021
 ### Notes
 - Continuing to implement LRU list
+- Seems that when we are allocating a new cache block, there will never be a case where we have to allocate a new block for an already filled space in the cache...
+  - If the cache contains outdated information and we want to update it, we may run into this situation, but for now does not seem like it will be an issue
+- Something to think about: is there anything we need/should do after we close a remote file with its cache?
+  - Should we de-allocate all its cached blocks?
+  - Actually, if we don't, then we might have a collision described above...which could lead to memory leakage
+- Since rfs_cache_fetch() and rfs_cache_store() are called from rfl_read(), we don't have to wait and signal the Rf_data mutex, since that is already done at the beginning/end of rfl_read()
+
 
 ### Issues/Improvements 3/22/2021
+1. ![](+.png) [3/18 Issue #1](#issuesimprovements-3182021)
+    - Made function get_new_cblock(), which allocates a new cache block and evicts from lru list if necessary
+    - In rfs_cache_fetch(), once data has been copied from a block, added code to remove it from lru list (if necessary) and insert it at the head of the lru list
+      - This is actually implemented via update_lru() now (see Issue #2 below)
+    - Quick test shows that inserting into lru list does not crash
+    - Testing completed on [3/28](#issuesimprovements-3282021)
+2. ![](+.png) Code Improvements
+    - Modularized some repetitive operations into functions
+    - Made function update_lru() which handles placing fetched cache block at head of lru list
+    - Made function insert_into_clist() to modularize inserting a new cache block into the list portion of the cache
+
+### Questions
+- Any tips to go about testing the LRU implementation?
+- Will we need mutex's for each rflcblk, because we are interacting with the cache_list data structure?
+
+## 3/23/2021
+### Notes
+- Testing LRU list implementation
+- Also need to update memory allocation to use a buffer pool instead of getmem()
+- Important: when testing, make sure to close the files at the end of a test function
+- Important: need to consider what happens when we close a file, because when conducting multiple tests, we will often re-use a RFILE device pointer
+
+### Issues/Improvements 3/23/2021
+1. ![](+.png) [3/22 Issue #1](#issuesimprovements-3222021)
+    - does not error out when testing with previously made cache test functions
+    - made function print_lru_list() to be able to see current contents of lru
+    - adding new items to lru seems to work
+    - however, reading an item already on the list seems to error out (infinte loop in list)...fixed
+    - Also, when item gets evicted, need to add code in get_cblock() to remove the block from the cache
+    - Still need to test whether eviction from lru list works correctly...done, see [3/28 Issue #1](#issuesimprovements-3282021)
+2. ![](+.png) Error with multiple consecutive tests
+    - Running cache_test4(), then cache_test6() causes error within cache_test6()
+    - Caused by file size check, since cache_test6 tries to read from a point that is much larger than cache_test4's, the size check fails on the first read. This is fixed by resetting file size to 0 when closing the remote file.
+
+## 3/24/2021
+### Notes
+- Meeting with Prof. Comer
+- Progress made since last meeting:
+  - can now cache read requests and fetch stored data from the cache instead of making a networking request
+  - the cache has 2 portions, a statically sized array that allows for direct indexing of cache blocks from small files, and a dynamically sized linked list for accessing cache blocks from larger files
+  - both of these portions can accomodate all types of reqd requests, including those which span more than 1 single cached block
+  - the cache list is maintained in sorted order
+  - There is now pre-processing done to make sure that the file size is noted before doing any reads, and each rfl device has a field to store the file size
+  - read requests are now pre-processed so that they do not try to request past the file size, and reads that span multiple cache blocks are split into 2 read requests that are satisfied separately
+  - implemented an LRU list that keeps track of most/least recently fetched cache blocks...tested
+  - there is a maximum number of allocable blocks, and once that number is reached, we will evict the least recently used cache block from the lru list before allocating a new block...still needs testing
+  - still need to test whether eviction from lru list works
+  - still need to implement a buffer pool for allocating cache blocks rather than using getmem()
+  - still need to design and implement system for how write requests will interact with the cache
+- Add boolean switch to turn on/off caching
+  - In general, make sure to keep original version of code to be able to differentiate when testing caching performance
+
+
+### Questions
+- Any tips to go about testing the LRU implementation?
+- Will we need mutex's for each rflcblk, because we are interacting with the cache_list data structure?
+- Right now, whenever rfl_read() is called, I truncate the request to never go beyond the file length. Since on the first read of a remote file the file length will not be initialized, I make a call to rfs_control() to obtain the file size. Is this a valid way to address this?
+- How to decide what's a good number of blocks to buffer via array?
+  - Too small may cause us to resort to linked list, which takes time to search through
+  - Too large may take too much of a toll memory-wise
+- What's a good number of cache blocks to pre-allocate with the buffer pool
+  - Too small and we'll have to evict a lot and may not be able to cache an adequate number of blocks
+  - To large and it takes a strain on the memory of the system
+  - random, sequential, patterned sequential reads
+- Is it worth keeping the cache list in sorted order?
+
+## 3/28/2021
+### Notes
+- Finished testing lru_list
+  - Might want to do some larger tests at some point
+- Still need to switch to using buffer pool
+- Need to add on/off switch for caching
+- Need to look into using hash table for cache_list instead of linked list
+
+### Issues/Improvements 3/28/2021
+1. ![](+.png) [3/23 Issue #1](#issuesimprovements-3232021)
+    - Having some trouble evicting elements; says we are not exceeding max capacity, but lru list contains more than max number of nodes
+    - Seems to be a problem with keeping track of the tail of lru_list
+    - Fixed... problem was that when the first block gets inserted into lru_list, it should've been assigned to be the tail as well as the head
+    - Eviction seems to work now
+
+## 3/30/2021
+### Notes
+- Going to add toggle to enable/disable caching...done
+- Going to switch from getmem() to using buffer pools...done
+- How will writes affect the current caching implementation?
+  - Two options: write-back or write-through
+  - Write-through: probably easier to implement, we just write the information to the cache, and then submit the write request on the network as usual
+  - Write-back: we write the information to the cache, and then 'later' we will make a write request on the network
+    - question is when to make the write request?
+    - we could do it once the file is closed...but that could take a while and if a lot of writes accumulate it might take a lot of simultaneous requests to get all the modified data submitted
+    - we could do so based on a timer, but again we still need a way to keep track of which blocks have been modified
+    - either way, whenever we submit a write request, we should just submit an entire block every time
+  - How to deal with writes that increase file length?
+    - We keep track of the file length, so we should be able to tell if a write will exceed the current file length
+    - Two scenarios: 1) the write starts at the last cache block and/or 2) requires a new block to be allocated
+      - Scenario 1: if the write starts at the last cache block, we can use valid_bytes field to tell when we start appending
+      - Scenario 2: if the write ends up needing a new cache block, we can allocate one and continue our writing. This block should be added to the lru_list as well
+      - Note: we need to make sure that we 1) update the file_size field once we make a write that increases file size, and 2) need to make sure that any additional reads do not overwrite the file_size field with outdated data 
+
+### Issues/Improvements 3/30/2021
+1. ![](+.png) Toggle caching functionality
+    - added a wrapper function rflread_wrapper, that calls either the cached or original version of rflread depending on value of constant RFL_CACHING_ENABLED
+    - the device switch table maps a read on a rfl device to rflread_wrapper now
+    - when testing, seems to work because when RFS_CACHING_ENABLED = 0, no lru list blocks are allocated, but we return the data we are expected to return
+    - when RFS_CACHING_ENALBED = 1, lru list blocks are allocated, and data still returns correctly
+    - also put preprocessor statements to conditionally initialize caching data structures depending on whether or not caching is enabled
+2. ![](+.png) Switching to buffer pools
+    - in rfsinit, use mkbufpool to allocate a pool of MAX_CBLOCKS_ALLOCABLE buffers, each the size of one rfs_cblock. Rf_data also has an additional field to store the poolid of the buffer pool
+    - in get_new_cblock(), if/when we evict the tail, we deallocate the memory using freebuf(). When we allocate the new cblock, we use getbuf(), passing in the poolid stored in Rf_data
+    - testing does not error out
+3. ![](+.png) Potential improvement to rfscontrol
+    - In the current implementation, we can only truncate files to length 0
+    - In Linux, however, we can set the length to which we want to truncate to, even making the file longer if desired
+    - Since linux already provides the truncate() function, this should be pretty straightforward to implement
+    - Completed, see [3/31 Issues #1,2](#issuesimprovements-3312021)
+
+### Questions
+- Is there ever a scenario where a cache block would be allocated but not added to the lru_list?
+  - If so, then it would be impossible to eventually deallocate this block...
+  - Right now, get_new_cblock() just allocates a new cache block, but does not add it to the lru_list. We assume that the reason that a cache block gets allocated is that it wasn't present in the cache when we tried to fetch, so we are allocating it then fetching again. In rfs_cache_fetch(), we then add the block to the front of the lru_list.
+  - So, if a cache block ever gets allocated but not fetched directly after, we run the risk of it not getting into the lru_list. However, in the current implementation it appears this will not happen
+
+## 3/31/2021
+### Notes
+- Working on improvement to rfscontrol
+  - Specifically, altering truncate request to specify new length
+- Notes about rfscontrol
+  - Learned that we have a function, rfsndmsg(), that deals with sending any rfs network request that only has header fields
+  - File deletion, truncation (in original implementation), directory creation, and directory deletion all use rfsndmsg() because they only require the header fields (message type, status sequence number, and filename)
+  - A size request also requires only this info, but when we make a size request we actually want to return the file size given to us by the network, whereas all other requests we simply get a Success/Failure status. Therefore, rfsndmsg() only returns a success value, and to make a file size request we have to build the request ourselves and capture the response ourselves so we can extract the file size
+  - Since the improved truncation will have an extra field (the size to truncate to), we can't use rfsndmsg as is, and so it will probably be easiest to handcraft the request and capture the response ourselves.
+- Notes about how the rfserver implements truncation
+  - To implement truncation, currently the server closes the file (if it's already open) then opens it with the O_TRUNC flag, which will truncate the file to 0 bytes if it's a regular file
+
+### Issues/Improvements 3/31/2021
+1. ![](+.png) [3/30 Issue #3](#issuesimprovements-3302021)
+    - Based on notes above, we have to handcraft a truncation request if we are going to allow user to specify truncation size
+    - Added a field into truncation request struct to specify truncation size
+    - In rfscontrol() switch statement, added code to create a truncation request with added parameter.
+    - In server code, modified function rstrunc(). If file is already open (findex >= 0) we use ftruncate() on the file descriptor to truncate file to specified length, and if the file not already open we use truncate()
+    - Tested and works
+2. ![](+.png) Additional improvement to truncation
+    - We can also make it so that a specific remote file device can also truncate itself
+    - Should be similar to how this was implemented for size requests
+    - Done. Also made it so that when we call truncation from a remote file device, we will also update that remote file's local size
+3. ![](+.png) Improvement to size request
+    - Since we constantly get size updates from read requests anyways, we should just return the locally stored file size if it has been initialized
+    - Actually, this won't work if we submit a truncation request from RFILESYS, because we won't be able to update local file size until we explicitly send a size request over the network
+
+### Questions
+- Why do we need to convert ints from host to network order (or vice versa) but not strings?

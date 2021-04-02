@@ -14,12 +14,123 @@ uint32 byte_to_index(
     return OK;
 }
 
-void dump_cache_blocks(struct rflcblk * rfptr) {
+/* print_cache_list - debugging function to print current cache list for a specified remote file */
+void print_cache_list(
+    struct rflcblk *rfptr)  /* the remote file whose cached contents will be printed */
+{
+    struct rfs_cblock *cur = rfptr->cache_list;
+    uint32 num = 0;
+    kprintf("Printing cache_list: ");
+    while (cur != NULL) {
+        kprintf("{Node %d: file_start = %d, valid_bytes = %d} ->", num, cur->file_start, cur->valid_bytes);
+        cur = cur->next;
+        num++;
+    }
+    kprintf("\n");
+    return;
+}
+
+/* dump_cache_blocks - prints out the contents of the specified remote file's cache */
+void dump_cache_blocks(
+    struct rflcblk * rfptr) /* the remote file whose cached contents will be printed */
+{
     kprintf("Dumping cache\n");
     for (uint32 i = 0; i < MAX_RFS_CBLOCKS; i++) {
         kprintf("Block at index %d has %d\n", i, (uint32) rfptr->cache[i]);
     }
+
+    print_cache_list(rfptr);
     kprintf("Done dumping cache\n");
+}
+
+/* print_lru_list - prints out the contents of the rfs's lru list */
+void print_lru_list() {
+    /* will be called from testing function, so need to acquire mutex */
+    wait(Rf_data.rf_mutex);
+
+    kprintf("++++++++++++++++Printing LRU list++++++++++++++++\n");
+    kprintf("%d blocks used out of %d\n", Rf_data.num_cblocks, MAX_CBLOCKS_ALLOCABLE);
+
+    struct rfs_cblock *cur = Rf_data.lru_head;
+    uint32 index = 0;
+    char *in_clist;
+    uint32 arr_index;
+    while (cur != NULL) {
+        if (cur->file_start < RF_DATALEN * 10) {
+            in_clist = "No";
+            arr_index = cur->file_start / RF_DATALEN;
+        }
+        else {
+            in_clist = "Yes";
+            arr_index = -1;
+        }
+
+        kprintf("{Remote file %d, index: %d, in cache list: %s} -> ", cur->rfl_devnum-RFILE0, arr_index, in_clist);
+        index++;
+        cur = cur->lru_next;
+    }
+    kprintf("\n");
+    cur = Rf_data.lru_tail;
+    if (cur->file_start < RF_DATALEN * 10) {
+        in_clist = "No";
+        arr_index = cur->file_start / RF_DATALEN;
+    }
+    else {
+        in_clist = "Yes";
+        arr_index = -1;
+    }
+    kprintf("Tail is: {Remote file %d, index: %d, in cache list: %s}\n", cur->rfl_devnum-RFILE0, arr_index, in_clist);
+    kprintf("++++++++++++++++Finished printing LRU list++++++++++++++++\n");
+
+    /* release mutex */
+    signal(Rf_data.rf_mutex);
+    return;
+}
+
+/* update_lru - places the specified cache block at the head of the remote file system's lru cache list */
+uint32 update_lru(
+    struct rfs_cblock *cur_block)   /* the block to place at the head of the lru list */
+{
+    struct rfs_cblock *prev;    /* used for removing node from lru list */
+    struct rfs_cblock *next;    /* used for removing node from lru list */
+
+    if (Rf_data.lru_head != cur_block) {
+        #if RFS_CACHE_DEBUG
+        kprintf("UPDATE_LRU: Setting {File %d, block %d} as new head of lru list!\n", cur_block->rfl_devnum-RFILE0, cur_block->file_start/RF_DATALEN);
+        #endif
+
+        /* get prev and next pointers */
+        prev = cur_block->lru_prev;
+        next = cur_block->lru_next;
+
+        /* remove cur_block from lru list */
+        if (prev != NULL) {
+            #if RFS_CACHE_DEBUG
+            kprintf("UPDATE_LRU: Prev not NULL!\n");
+            #endif
+            prev->lru_next = next;
+        }
+
+        if (next != NULL) {
+            #if RFS_CACHE_DEBUG
+            kprintf("UPDATE_LRU: Next not NULL!\n");
+            #endif
+            next->lru_prev = prev;
+        }
+
+        /* re-insert cur_block at head of list */
+        cur_block->lru_prev = NULL;
+        cur_block->lru_next = Rf_data.lru_head;
+        Rf_data.lru_head->lru_prev = cur_block;
+        Rf_data.lru_head = cur_block;
+
+        if (cur_block->lru_next == NULL) {
+            /* is only block in list, so head is also tail */
+            Rf_data.lru_tail = cur_block;
+        }
+    }
+
+    return OK;
 }
 
 /* rfs_cache_fetch - Copies over as many bytes as possible from cache into buffer */
@@ -46,11 +157,10 @@ uint32 rfs_cache_fetch(
         return SYSERR;
     }
 
-    // dump_cache_blocks(rfptr);
-
     #if RFS_CACHE_DEBUG
     kprintf("RFS_CACHE_FETCH: looking in index %d, offset %d\n", cache_loc.index, cache_loc.offset);
     #endif
+
     /* if we reach here, we know all requested bytes lie in same cache block */
     if (cache_loc.index < MAX_RFS_CBLOCKS) {
         /* block resides in array structure, directly index in */
@@ -88,6 +198,9 @@ uint32 rfs_cache_fetch(
             #if RFS_CACHE_DEBUG
             kprintf("\n");
             #endif
+
+            /* update the LRU list to indicate that this is now the most recently used cache block */
+            update_lru(cur_block);
 
             return bytes_found;
         }
@@ -136,36 +249,159 @@ uint32 rfs_cache_fetch(
         kprintf("\n");
         #endif
 
+        /* update the LRU list to indicate that this is now the most recently used cache block */
+        update_lru(cur_block);
+
         return bytes_found;
     }
 
     return bytes_found;
 }
 
-/* print_cache_list - debugging function to print current cache list for a specified remote file */
-void print_cache_list(
-    struct rflcblk *rfptr) 
+/* get_new_cblock - function to retrieve a new cache block, evicting a block from the LRU list if necessary */
+struct rfs_cblock * get_new_cblock()
 {
-    struct rfs_cblock *cur = rfptr->cache_list;
-    uint32 num = 0;
-    kprintf("Printing cache_list: ");
-    while (cur != NULL) {
-        kprintf("{Node %d: file_start = %d, valid_bytes = %d} ->", num, cur->file_start, cur->valid_bytes);
-        cur = cur->next;
-        num++;
+    struct rfs_cblock *new_block;       /* the newly allocated block we will return */
+    struct rfs_cblock *prev;            /* used to de-allocate node from lru list */
+
+    struct rfs_cblock *cprev;       /* used to de-allocate node from cache linked list */
+    struct rfs_cblock *cnext;       /* used to de-allocate node from cache linked list */
+
+    /* check if the max number of cache blocks have been allocated */
+    if (Rf_data.num_cblocks == MAX_CBLOCKS_ALLOCABLE) {
+        /* have to evict the tail block before allocating */
+        #if RFS_CACHE_DEBUG
+        kprintf("GET_NEW_CBLOCK: Have to evict tail: File %d, block %d!\n", Rf_data.lru_tail->rfl_devnum-RFILE0, Rf_data.lru_tail->file_start / RF_DATALEN);
+        #endif
+        /* remove tail from list */
+        prev = Rf_data.lru_tail->lru_prev;
+        prev->lru_next = NULL;
+
+        /* remove block from cache */
+        if (Rf_data.lru_tail->file_start < MAX_RFS_CBLOCKS * RF_DATALEN) {
+            /* remove from array portion of cache */
+            (&rfltab[Rf_data.lru_tail->rfl_devnum-RFILE0])->cache[Rf_data.lru_tail->file_start / RF_DATALEN] = NULL;
+        }
+        else {
+            /* remove from linked list portion of cache */
+            cprev = Rf_data.lru_tail->prev;
+            cnext = Rf_data.lru_tail->next;
+
+            if (cprev == NULL) {
+                /* need to make cnext the new head of list */
+                (&rfltab[Rf_data.lru_tail->rfl_devnum-RFILE0])->cache_list = cnext;
+
+                if (cnext != NULL) {
+                    cnext->prev = NULL;
+                }
+
+                Rf_data.lru_tail->prev = NULL;
+                Rf_data.lru_tail->next = NULL;
+            }
+            else {
+                /* we are not removing head of list */
+                if (cprev != NULL) {
+                    cprev->next = cnext;
+                }
+
+                if (cnext != NULL) {
+                    cnext->prev = cprev;
+                }
+            }
+        }
+
+        /* de-allocate old tail */
+        freebuf((char *) Rf_data.lru_tail);
+
+        /* set prev as new tail of list */
+        Rf_data.lru_tail = prev;
+
+        /* decrement count of allocated blocks */
+        Rf_data.num_cblocks--;
     }
-    kprintf("\n");
-    return;
+
+    /* allocate a new cache block */
+    new_block = (struct rfs_cblock *) getbuf(Rf_data.buffpoolid);
+    if (new_block == SYSERR) {
+        return NULL;
+    }
+
+    /* increment count of allocated cache blocks */
+    Rf_data.num_cblocks++;
+
+    /* return the new cache block */
+    return new_block;
+}
+
+/* insert_into_clist - helper function to insert a new cache block into the specified remote file's cache list */
+uint32 insert_into_clist(
+    struct rflcblk *rfptr,          /* the remote file whose list the block will be inserted into */
+    struct rfs_cblock *new_block)   /* the block to insert */
+{
+    struct rfs_cblock *cur;         /* used to walk through cache list */
+
+    if (rfptr->cache_list == NULL) {
+        /* list is empty */
+        rfptr->cache_list = new_block;
+
+        // #if RFS_CACHE_DEBUG
+        print_cache_list(rfptr);
+        // #endif
+        return OK;
+    }
+
+    /* place node into list in sorted order */
+    cur = rfptr->cache_list;
+    while (cur->file_start < new_block->file_start && cur->next != NULL) {
+        cur = cur->next;
+    }
+
+    if (cur->file_start > new_block->file_start) {
+        /* place before */
+        if (cur == rfptr->cache_list) {
+            /* new_node is head of list now */
+            cur->prev = new_block;
+            new_block->next = cur;
+            rfptr->cache_list = new_block;
+
+            // #if RFS_CACHE_DEBUG
+            print_cache_list(rfptr);
+            // #endif
+            return OK;
+        }
+
+        /* new_node is not head of list now, update both sides */
+        struct rfs_cblock *prev = cur->prev;
+        prev->next = new_block;
+        cur->prev = new_block;
+        new_block->prev = prev;
+        new_block->next = cur;
+
+        // #if RFS_CACHE_DEBUG
+        print_cache_list(rfptr);
+        // #endif
+        return OK;
+    }
+
+    /* new_node is tail of list now */
+    cur->next = new_block;
+    new_block->prev = cur;
+
+    // #if RFS_CACHE_DEBUG
+    print_cache_list(rfptr);
+    // #endif
+    return OK;
 }
 
 /* rfs_cache_store - function to place contents of specified read request into a cache block for specified remote file */
 uint32 rfs_cache_store(
-    struct rflcblk *rfptr,
-    struct rf_msg_rres * resp)
+    struct rflcblk *rfptr,      /* the remote file control block that will store the cached contents */
+    struct rf_msg_rres * resp)  /* the read request to cache */
 {
     struct rfs_cpos cache_loc;     /* position in cache to place this block */
     uint32 status;                  /* used for checking status of function calls */
     uint32 i;                       /* used for indexing into block */
+    struct rfs_cblock *new_block;   /* used to store the newly allocated cache block */
 
     status = byte_to_index(ntohl(resp->rf_pos), &cache_loc);
     if (status == SYSERR) {
@@ -180,24 +416,16 @@ uint32 rfs_cache_store(
     #if RFS_CACHE_DEBUG
     kprintf("RFS_CACHE_STORE: storing response in index %d, offset %d\n", cache_loc.index, cache_loc.offset);
     #endif
+
+    /* Retrieve a new cache block, evicting from the LRU list if necessary */
+    new_block = get_new_cblock();
+    if (new_block == NULL) {
+        kprintf("Error allocating a new cache block!\n");
+        return SYSERR;
+    }
+
     if (cache_loc.index < MAX_RFS_CBLOCKS) {
         /* block should be placed in the array structure */
-        struct rfs_cblock *new_block = NULL;
-
-        if (rfptr->cache[cache_loc.index] == NULL) {
-            /* no memory allocated for block */
-            /* TODO: switch to using memory buffer instead of getmem so there is a limit on how much memory cache blocks can use */
-            new_block = (struct rfs_cblock *) getmem(sizeof(struct rfs_cblock));
-            if (new_block == NULL) {
-                kprintf("Error allocating block!\n");
-                return SYSERR;
-            }
-        }
-        else {
-            /* there is already an allocated block, we will just overwrite */
-            new_block = rfptr->cache[cache_loc.index];
-        }
-
         #if RFS_CACHE_DEBUG
         kprintf("RFS_CACHE_STORE: copying the following to block %d: ", cache_loc.index);
         #endif
@@ -223,7 +451,11 @@ uint32 rfs_cache_store(
         /* setup block's devnum to associate it with this remote file */
         new_block->rfl_devnum = rfptr->rfdev;
 
-        /* TODO: setup block's lru list */
+        /* block will reside in array, set next/prev pointers to NULL */
+        new_block->prev = NULL;
+        new_block->next = NULL;
+
+        /* setup block's lru list pointers as NULL, will be set when the block is fetched */
         new_block->lru_prev = NULL;
         new_block->lru_next = NULL;
 
@@ -272,7 +504,7 @@ uint32 rfs_cache_store(
         /* setup block's devnum to associate it with this remote file */
         new_block->rfl_devnum = rfptr->rfdev;
 
-        /* TODO: setup block's lru list */
+        /* setup block's lru list pointers as NULL, will be set when the block is fetched */
         new_block->lru_prev = NULL;
         new_block->lru_next = NULL;
 
@@ -280,57 +512,14 @@ uint32 rfs_cache_store(
         new_block->prev = NULL;
 
         /* place node into list */
-        if (rfptr->cache_list == NULL) {
-            /* list is empty */
-            rfptr->cache_list = new_block;
-
-            // #if RFS_CACHE_DEBUG
-            print_cache_list(rfptr);
-            // #endif
-            return OK;
-        }
-
-        /* place node into list in sorted order */
-        struct rfs_cblock *cur = rfptr->cache_list;
-        while (cur->file_start < new_block->file_start && cur->next != NULL) {
-            cur = cur->next;
-        }
-
-        if (cur->file_start > new_block->file_start) {
-            /* place before */
-            if (cur == rfptr->cache_list) {
-                /* new_node is head of list now */
-                cur->prev = new_block;
-                new_block->next = cur;
-                rfptr->cache_list = new_block;
-
-                // #if RFS_CACHE_DEBUG
-                print_cache_list(rfptr);
-                // #endif
-                return OK;
-            }
-
-            /* new_node is not head of list now, update both sides */
-            struct rfs_cblock *prev = cur->prev;
-            prev->next = new_block;
-            cur->prev = new_block;
-            new_block->prev = prev;
-            new_block->next = cur;
-
+        status = insert_into_clist(rfptr, new_block);
+        if (status != OK) {
             #if RFS_CACHE_DEBUG
-            print_cache_list(rfptr);
+            kprintf("Error with list insertion!\n");
             #endif
-            return OK;
         }
 
-        /* new_node is tail of list now */
-        cur->next = new_block;
-        new_block->prev = cur;
-
-        // #if RFS_CACHE_DEBUG
-        print_cache_list(rfptr);
-        // #endif
-        return OK;
+        return status;
     }
 
     return OK;

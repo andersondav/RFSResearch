@@ -40,7 +40,8 @@ struct	rfdata	{
 	bool8	rf_registered;		/* Has UDP port been registered?*/
 
 	/* the following fields are for caching */
-	uint32 max_cblocks;			/* the maximum number of cached blocks that can be allocated at once */
+	bpid32 buffpoolid;			/* the pool ID for the buffer where cache blocks are allocated from */
+	uint32 num_cblocks;			/* the current number of cached blocks that have been allocated so far */
 	struct rfs_cblock * lru_head;	/* the head (most recently used) cache block */
 	struct rfs_cblock * lru_tail; 	/* the tail (least recently used) cache block */
 };
@@ -279,6 +280,7 @@ struct	rf_msg_dres	{		/* Remote file delete response	*/
 #pragma pack(2)
 struct	rf_msg_treq	{		/* Remote file truncate request	*/
 	RF_MSG_HDR			/* Header fields		*/
+	int32 trunc_size;		/* (Addition to original implementation) Size to truncate file to */
 };
 #pragma pack()
 

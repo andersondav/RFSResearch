@@ -4,16 +4,17 @@
 #define RFS_CACHE_DEBUG 0 /* value of 1 will print debug messages */
 /* Constants */
 
+#if RFS_CACHING_ENABLED
 #ifndef MAX_RFS_CBLOCKS
-#define MAX_RFS_CBLOCKS 10 /* maximum number of cached blocks a remote file can access through direct indexing */
+#define MAX_RFS_CBLOCKS 128 /* maximum number of cached blocks a remote file can access through direct indexing */
 #endif
 
 #ifndef MAX_CBLOCKS_ALLOCABLE
-#define MAX_CBLOCKS_ALLOCABLE 5
+#define MAX_CBLOCKS_ALLOCABLE 1000 /* maximum number of blocks that can exist in the cache at any given time */
 #endif
 
 #ifndef RFS_CBLOCK_SIZE
-#define RFS_CBLOCK_SIZE 1024 /* maximum number of file data bytes a cache block can contain */
+#define RFS_CBLOCK_SIZE 1024 /* maximum number of file data bytes a cache block can contain (equal to RF_DATALEN) */
 #endif
 
 /* struct rfs_cblock - The data structure for a block of cached remote file data */
@@ -32,16 +33,6 @@ struct rfs_cblock {
     struct rfs_cblock * prev; /* The prev node in the linked list */
 };
 
-/* struct rfs_cache_list_node - Node for linked list of cache blocks
- * Use case 1: for large files that require more than MAX_BLOCKS blocks to cache)
- * Use case 2: to track least recently used block, for eviction purposes when cache gets full
- */
-// struct rfl_cache_list_node {
-//     struct rfl_block * block; /* The cache block this list node points to */
-//     struct rfl_cache_list_node * next; /* The next node in the linked list */
-//     struct rfl_cache_list_node * prev; /* The prev node in the linked list */
-// };
-
 /* struct rfs_cpos - Used to pinpoint a location in a cache block by specifying the
  * cache block index and the offset within that block
  */
@@ -49,3 +40,4 @@ struct rfs_cpos {
     uint32 index;
     uint32 offset;
 };
+#endif

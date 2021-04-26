@@ -11,8 +11,9 @@ This repo is the work of an independent study research done during the Spring 20
   - Added some protections against potential buffer overflow when reading on Xinu side by limitting number of bytes copied into user buffer to minimum of response size and user's buffer size.
   - Added functionality to rfs control() function to allow users to pass in filename when requesting file size, or to request file size from a remote file device directly.
   - Fixed bug where opening, reading, then re-opening a directory on the Xinu client side would not re-set directory pointer to beginning of directory.
- 3. [In progress] Caching in the Remote File System
-  - Working on implementing local file caching on the Xinu side. This system would enable the Xinu client to cache file data from past read()s so that potential future read()s would not require network calls, thus improving efficiency.
+ 3. Caching in the Remote File System
+  - Implemented a local file cache on the Xinu client. This system would enable the Xinu client to cache file data from past file accesses so that potential future accesses would not require network calls, thus improving efficiency.
+  - Link to testing results of cache: https://docs.google.com/document/d/1y47y16yz3daPWNkbycYcKHH_TzWcvxRNoHLUZYM6E9c/edit?usp=sharing
   
 ## Technologies Used
 1. The Remote File System is built into the Xinu operating system. The source code contains various RFS functions that are mounted onto the Xinu device table, thus allowing users to seamlessly communicate with remote files through conventional open(), close(), read(), write(), and control() syscalls.

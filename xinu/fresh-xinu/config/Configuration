@@ -65,11 +65,10 @@ rfs:
 		-intr ionull
 
 /* type of a remote file pseudo-device */
-/* Note: to implement rfs caching, switched read to map to rflread_wrapper (located in file device/rfs/rflread.c) */
 rfl:
 	on rfs
 		-i rflinit	-o ioerr	-c rflclose
-		-r rflread_wrapper	-g rflgetc	-p rflputc
+		-r rflread	-g rflgetc	-p rflputc
 		-w rflwrite	-s rflseek	-n rfscontrol
 		-intr ionull
 

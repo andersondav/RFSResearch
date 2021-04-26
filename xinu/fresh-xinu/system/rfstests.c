@@ -19,7 +19,7 @@ int num_digits(int num) {
 /*
  *  message_generator - helper function for generating file contents
  */
-char * message_generator(uint32 count, char * filename) {
+char * message_generator(uint32 count, char * filename, uint32 random) {
     char * msg = (char *) getmem(count);
     uint32 bytes_written = 0;
     char * to = msg;
@@ -33,7 +33,13 @@ char * message_generator(uint32 count, char * filename) {
     to += bytes_written;
     // kprintf("A random char is %c\n", (char) (rand()%26) + 'a');
     for (int i = bytes_written; i < count-1; i++) {
-        *to++ = (char) (rand()%26) + 'a';
+        if (!random) {
+            *to++ = (char) (rand()%26) + 'a';
+        }
+        else {
+            *to++ = (char) (count % 26) + 'a';
+        }
+        
     }
     *to++ = '\0';
     return msg;
@@ -192,6 +198,7 @@ void multi_open_test() {
     kprintf("Reopening the file and reading...\n");
     dp = open(RFILESYS, "newfile", "rw");
 
+    read_msg = getmem(64);
     memset(read_msg, 0, 64);
     read(dp, read_msg, 64);
     kprintf("The read message from newfile was %s\n", read_msg);
@@ -365,6 +372,7 @@ void remove_dir_test() {
     kprintf("-----------------Finished remove_dir_test-----------------\n");
 }
 
+#if RFS_CACHING_ENABLED
 /*
  *  updated_sizing_test - a test to see if reading now returns file size
  */
@@ -416,6 +424,7 @@ void updated_sizing_test() {
     kprintf("-----------------Finished %s-----------------\n", test_name);
     return;
 }
+#endif
 
 /*
  *  cache_test1 - a basic test to ensure reading works with cache implementation
@@ -528,7 +537,7 @@ void cache_test2() {
 void cache_test3() {
     char * test_name = "cache_test3";
     char * filename = "cache_test3_file";
-    char * message = message_generator(1201, filename);
+    char * message = message_generator(1201, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -603,7 +612,7 @@ void cache_test3() {
 void cache_test4() {
     char * test_name = "cache_test4";
     char * filename = "cache_test4_file";
-    char * message = message_generator(2048, filename);
+    char * message = message_generator(2048, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -686,7 +695,7 @@ void cache_test5() {
 
     /* In the array portion of the cache there are 10 blocks of size 1024 */
     /* so anything beyond 10*1024 = 10240 bytes will be cached in the list portion */
-    char * message = message_generator(12288, filename);
+    char * message = message_generator(12288, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -743,7 +752,7 @@ void cache_test6() {
     /* In the array portion of the cache there are 10 blocks of size 1024 */
     /* so anything beyond 10*1024 = 10240 bytes will be cached in the list portion */
     uint32 num_blocks = 5;
-    char * message = message_generator(10240 + num_blocks*1024-57, filename);
+    char * message = message_generator(10240 + num_blocks*1024-57, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -810,7 +819,7 @@ void cache_test7() {
     /* In the array portion of the cache there are 10 blocks of size 1024 */
     /* so anything beyond 10*1024 = 10240 bytes will be cached in the list portion */
     uint32 num_blocks = 5;
-    char * message = message_generator(10240 + num_blocks*1024-57, filename);
+    char * message = message_generator(10240 + num_blocks*1024-57, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -868,6 +877,7 @@ void cache_test7() {
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
 
+#if RFS_CACHING_ENABLED
 /*
  *  devnum_test - a test to ensure we can access a remote file's cache from a chosen block's rfl_devnum
  */
@@ -878,7 +888,7 @@ void devnum_test() {
     /* In the array portion of the cache there are 10 blocks of size 1024 */
     /* so anything beyond 10*1024 = 10240 bytes will be cached in the list portion */
     uint32 num_blocks = 5;
-    char * message = message_generator(10240 + num_blocks*1024-57, filename);
+    char * message = message_generator(10240 + num_blocks*1024-57, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -943,6 +953,7 @@ void devnum_test() {
 
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
+#endif
 
 /*
  *  lru_test1 - a test that tests the basic functionality of the rfs's lru list
@@ -956,9 +967,9 @@ void lru_test1() {
     /* In the array portion of the cache there are 10 blocks of size 1024 */
     /* so anything beyond 10*1024 = 10240 bytes will be cached in the list portion */
     uint32 num_blocks = 5;
-    char * message = message_generator(10240 + num_blocks*1024-57, filename);
-    char * message2 = message_generator(10240 + num_blocks*1024-89, filename2);
-    char * message3 = message_generator(10240 + num_blocks*1024-43, filename3);
+    char * message = message_generator(10240 + num_blocks*1024-57, filename, 0);
+    char * message2 = message_generator(10240 + num_blocks*1024-89, filename2, 0);
+    char * message3 = message_generator(10240 + num_blocks*1024-43, filename3, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -1039,7 +1050,9 @@ void lru_test1() {
         }
 
         kprintf("Comparison result: %s\n", comp_result);
+        #if RFS_CACHING_ENABLED
         print_lru_list();
+        #endif
     }
 
     
@@ -1050,13 +1063,14 @@ void lru_test1() {
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
 
+#if RFS_CACHING_ENABLED
 /* 
  *  trunc_test - a test of improved truncation functionality
  */
 void trunc_test() {
     char * test_name = "trunc_test";
     char * filename = "trunc_test";
-    char * message = message_generator(2048, filename);
+    char * message = message_generator(2048, filename, 0);
     kprintf("-----------------Beginning %s-----------------\n", test_name);
 
     kprintf("Opening file named %s\n", filename);
@@ -1115,3 +1129,460 @@ void trunc_test() {
 
     kprintf("-----------------Finished %s-----------------\n", test_name);
 }
+#endif
+
+/*
+ *  close_test - a test to ensure that we can close a file and open a new one in its place
+ *  and still make correct reads from the array portion of the cache 
+ */
+void close_test() {
+    char * test_name = "close_test";
+    char * filename = "closet_test_file1";
+    char * filename2 = "close_test_file2";
+    char * message = message_generator(406, filename, 0);
+    char * message2 = message_generator(345, filename2, 0);
+    kprintf("-----------------Beginning %s-----------------\n", test_name);
+
+    kprintf("Opening file named %s\n", filename);
+    uint32 dp = open(RFILESYS, filename, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    kprintf("Going to write message into the file...\n");
+
+    uint32 status = write(dp, message, strlen(message));
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    kprintf("Opening file named %s\n", filename2);
+    uint32 dp2 = open(RFILESYS, filename2, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    kprintf("Going to write message into the file...\n");
+
+    status = write(dp2, message2, strlen(message2));
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    kprintf("Closing second file...\n");
+    close(dp2);
+
+    kprintf("Reading first file...\n");
+    char * read_msg = getmem(512);
+    memset(read_msg, 0, 512);
+    seek(dp, 0);
+
+    read(dp, read_msg, 512);
+    kprintf("Comparison result: %s\n", strncmp(read_msg, message, strlen(message)) == 0 ? "Equal" : "Not equal");
+
+    #if RFS_CACHING_ENABLED
+    print_lru_list();
+    #endif
+
+    kprintf("Closing first file, re-opening second file in its place...\n");
+    close(dp);
+
+    dp = open(RFILESYS, filename2, "rw");
+
+    kprintf("Reading second file...\n");
+    memset(read_msg, 0, 512);
+    seek(dp, 0);
+
+    read(dp, read_msg, 512);
+    kprintf("Comparison result: %s\n", strncmp(read_msg, message2, strlen(message2)) == 0 ? "Equal" : "Not equal");
+
+    #if RFS_CACHING_ENABLED
+    print_lru_list();
+    #endif
+
+    freemem(read_msg, 512);
+    close(dp);
+
+    kprintf("-----------------Finished %s-----------------\n", test_name);
+}
+
+/*
+ *  close_test - a test to ensure that we can close a file and open a new one in its place
+ *  and still make correct reads from the list portion of the cache 
+ */
+void close_test2() {
+    char * test_name = "close_test";
+    char * filename = "close_test2_file1";
+    char * filename2 = "close_test2_file2";
+
+    uint32 num_blocks = 5;
+    char * message = message_generator(10240 + num_blocks*1024-57, filename, 0);
+    char * message2 = message_generator(10240 + num_blocks*1024-32, filename2, 0);
+    kprintf("-----------------Beginning %s-----------------\n", test_name);
+
+    kprintf("Opening file named %s\n", filename);
+    uint32 dp = open(RFILESYS, filename, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+    
+    uint32 status;
+    kprintf("Going to write message into the file...\n");
+    /* writing 1024 bytes at a time */
+    for (int i = 0; i < 10+num_blocks; i++) {
+        status = write(dp, message+(i*1024), 1024 <= strlen(message+(i*1024)) ? 1024 : strlen(message+(i*1024)));
+        if (status == SYSERR) {
+            kprintf("Error with write()!\n");
+            return;
+        }
+    }
+
+    kprintf("Opening file named %s\n", filename2);
+    uint32 dp2 = open(RFILESYS, filename2, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+
+    kprintf("Going to write message into the file...\n");
+    /* writing 1024 bytes at a time */
+    for (int i = 0; i < 10+num_blocks; i++) {
+        status = write(dp2, message2+(i*1024), 1024 <= strlen(message2+(i*1024)) ? 1024 : strlen(message2+(i*1024)));
+        if (status == SYSERR) {
+            kprintf("Error with write()!\n");
+            return;
+        }
+    }
+
+    kprintf("Closing second file...\n");
+    close(dp2);
+
+    kprintf("Reading first file...\n");
+    char * read_msg = getmem(512);
+    memset(read_msg, 0, 512);
+    seek(dp, 10276);
+
+    read(dp, read_msg, 512);
+    kprintf("Comparison result: %s\n", strncmp(read_msg, &message[10276], 512) == 0 ? "Equal" : "Not equal");
+
+    #if RFS_CACHING_ENABLED
+    print_lru_list();
+    #endif
+
+    kprintf("Closing first file, re-opening second file in its place...\n");
+    close(dp);
+
+    dp = open(RFILESYS, filename2, "rw");
+
+    kprintf("Reading second file...\n");
+    memset(read_msg, 0, 512);
+    seek(dp, 10276);
+
+    read(dp, read_msg, 512);
+    kprintf("Comparison result: %s\n", strncmp(read_msg, &message2[10276], 512) == 0 ? "Equal" : "Not equal");
+
+    #if RFS_CACHING_ENABLED
+    print_lru_list();
+    #endif
+
+    freemem(read_msg, 512);
+    close(dp);
+
+    kprintf("-----------------Finished %s-----------------\n", test_name);
+}
+
+/*
+ *  seek_test - a test of the updated rflseek functinoality
+ */
+void seek_test() {
+    char * test_name = "seek_test";
+    char * filename = "seek_test_file";
+
+    char * message = message_generator(567, filename, 0);
+    kprintf("-----------------Beginning %s-----------------\n", test_name);
+
+    #if RFS_CACHING_ENABLED
+    print_lru_list();
+    #endif
+
+    kprintf("Opening file named %s\n", filename);
+    uint32 dp = open(RFILESYS, filename, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+    
+    uint32 status;
+    kprintf("Going to write message into the file...\n");
+    status = write(dp, message, 567);
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    kprintf("Reading from file...\n");
+    char * read_msg = getmem(800);
+    memset(read_msg, 0, 800);
+    seek(dp, 0);
+
+    read(dp, read_msg, 800);
+    kprintf("Comparison result: %s\n", strncmp(read_msg, message, strlen(message)) == 0 ? "Equal" : "Not equal");
+
+    #if RFS_CACHING_ENABLED
+    print_lru_list();
+    #endif
+
+    kprintf("Trying to seek beyond EOF...\n");
+    status = seek(dp, 678);
+    if (status != SYSERR) {
+        kprintf("No error with invalid seek!\n");
+        return;
+    }
+
+    kprintf("Error with invalid seek!\n");
+
+    freemem(read_msg, 512);
+    kprintf("dp is %d, RFILE0 is %d\n", dp, RFILE0);
+    close(dp);
+
+    kprintf("-----------------Finished %s-----------------\n", test_name);
+}
+
+/* 
+ *  write_test - a test of cached rflwrite functionality
+ */
+void cached_write_test() {
+    char * test_name = "cached_write_test";
+    char * filename = "cached_write_test_file";
+
+    char * message = message_generator(1024, filename, 0);
+    kprintf("-----------------Beginning %s-----------------\n", test_name);
+
+    kprintf("Opening file named %s\n", filename);
+    uint32 dp = open(RFILESYS, filename, "rw");
+    if (dp == NULL) {
+        kprintf("Error with open()!\n");
+        return;
+    }
+    
+    uint32 status;
+    kprintf("Going to write message into the file...\n");
+    status = write(dp, message, 1024);
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    kprintf("Seeking to a position where writing 1024 bytes would use 2 cache blocks...\n");
+    seek(dp, 512);
+
+    kprintf("Going to write message into the file at offset 512...\n");
+    status = write(dp, message, 1024);
+    if (status == SYSERR) {
+        kprintf("Error with write()!\n");
+        return;
+    }
+
+    kprintf("All of the file info should be in cache now, so let's read while server if off...\n");
+    kprintf("Sleeping for 10s to allow time to turn off server...\n");
+    sleepms(10000);
+
+    kprintf("Reading from file...\n");
+    char * read_msg = getmem(800);
+    memset(read_msg, 0, 800);
+    seek(dp, 512);
+
+    read(dp, read_msg, 800);
+    kprintf("Comparison result: %s\n", strncmp(read_msg, message, 800) == 0 ? "Equal" : "Not equal");
+
+    freemem(read_msg, 800);
+    close(dp);
+
+    kprintf("-----------------Finished %s-----------------\n", test_name);
+}
+
+char * border = "=======================";
+
+/* The cache size to be used for testing purposes. If this is 0, then the rfs_cache will default to a cache size of MAX_CBLOCKS_ALLOCABLE */
+int rfs_cache_testsize = 0; 
+/* 
+ * IMPORTANT: If you conduct multiple tests with multiple different cache sizes, then you can only increment cache sizes from one test to another.
+ * For example, if you conduct one test with cache_testsize = 100, then conduct a subsequent test with cache_testsize = 80, then this test will
+ * not work properly since there may be 100 blocks in cache already, exceeding your desired size.
+ */
+
+/*
+ *  rfs_cache_test - an all-encompassing test that tests the functionality and performance
+ *  of the rfs system
+ */
+float rfs_cache_test(
+    uint32 seq_or_rand, /* 0 does sequential reading, > 0 does random reading */
+    uint32 cache_size,  /* number of blocks allowed in cache */
+    uint32 file_size,   /* size of file to read from */
+    uint32 num_reads,   /* number of read operations */
+    uint32 check_reads, /* 0 to not check if reads are correct, > 0 does check */
+    uint32 quiet)       /* 0 prints debug messages, > 0 does not */
+{
+    uint32 dp;      /* device pointer to rfl device */
+    char * message; /* pointer to message to write into file */
+    uint32 status;              /* used to check status of syscalls */
+    uint32 pos;                 /* current position in file */
+    char read_msg[RF_DATALEN];  /* used to hold data read */
+    float begin_time;          /* track beginning time in seconds */
+    float end_time;         /* track beginning time in milliseconds */
+    uint32 time;            /* used to seed random number generator */
+    // uint32 i;               /* used for indexing */
+    uint32 bytes_read;      /* used for checking if read is correct */
+
+    if (!quiet) {
+        kprintf("%s", border);
+        kprintf("Beginning rfs_tests");
+        kprintf("%s\n", border);
+
+        /* print out test options */
+        kprintf("Reading type: %s\n", seq_or_rand == 0 ? "Sequential" : "Random");
+        kprintf("Caching: %s\n", RFS_CACHING_ENABLED ? "Enabled" : "Disabled");
+        #if RFS_CACHING_ENABLED 
+        kprintf("Cache size: %d blocks\n", cache_size);
+        if (MAX_CBLOCKS_ALLOCABLE < cache_size) {
+            kprintf("Error: cache size not setup correctly. Please change constant MAX_CBLOCKS_ALLOCABLE in include/rfs_cache.h to be at least desired cache size and recompile.\n");
+            return -1.0;
+        }
+        #endif
+    }
+
+    rfs_cache_testsize = cache_size;
+
+    /* generate contents of file */
+    message = message_generator(file_size, "rfs_cache_test_file", 1);
+
+    /* setup file */
+    if (!quiet) {
+        kprintf("Setting up file...\n");
+    }
+
+    /* open file */
+    dp = open(RFILESYS, "rfs_cache_test_file", "rw");
+    if (dp == NULL) {
+        kprintf("Error with opening file; aborting test\n");
+        return -1.0;
+    }
+
+    /* truncate file to 0 bytes */
+    status = control(dp, RFS_CTL_TRUNC, 0, 0);
+    if (status == SYSERR) {
+        kprintf("Error with truncation; aborting test\n");
+        return -1.0;
+    }
+
+    pos = 0;
+    /* write message into file, RF_DATALEN bytes at a time */
+    for (pos = 0; pos < file_size;) {
+        status = write(dp, &(message[pos]), file_size - pos < RF_DATALEN ? file_size - pos : RF_DATALEN);
+        if (status != (file_size - pos < RF_DATALEN ? file_size - pos : RF_DATALEN)) {
+            kprintf("Error with writing to file (only wrote %d bytes out of %d); aborting test\n", pos, file_size);
+            return -1.0;
+        }
+        pos += (file_size - pos < RF_DATALEN ? file_size - pos : RF_DATALEN);
+    }
+    
+    /* close file */
+    close(dp);
+
+    if (!quiet) {
+        kprintf("File setup complete.\n\n");
+        kprintf("Commencing test...\n");
+    }
+
+    /* begin reading from file */
+    if (seq_or_rand == 0) {
+        /* open file */
+        dp = open(RFILESYS, "rfs_cache_test_file", "rw");
+        pos = 0;
+
+        /* Set start time */
+        begin_time = (float) clktime + (float) count1000 / 1000.0;
+
+        for (; num_reads > 0; num_reads--) {
+            /* seek to position to read from */
+            seek(dp, pos);
+
+            /* read message */
+            bytes_read = read(dp, read_msg, RF_DATALEN);
+
+            /* (Optional) check whether read was successful or not */
+            if (check_reads && strncmp(read_msg, &(message[pos]), bytes_read) != 0) {
+                kprintf("Error: Incorrect data at pos %d\n", pos);
+            }
+
+            /* update position */
+            pos += RF_DATALEN;
+            pos = pos % file_size;
+            pos = (pos / RF_DATALEN) * RF_DATALEN;
+        }
+
+        /* Note end time */
+        end_time = (float) clktime + (float) count1000 / 1000.0;
+    }
+    else {
+        /* open file */
+        dp = open(RFILESYS, "rfs_cache_test_file", "rw");
+
+        /* get time to seed random number generator */
+        gettime(&time);
+
+        /* seed random number generator */
+        srand(time);
+
+        /* seek to start of random block */
+        pos = rand() % file_size;
+        
+        /* Set start time */
+        begin_time = (float) clktime + (float) count1000 / 1000.0;
+
+        for (; num_reads > 0; num_reads--) {
+            /* seek to position to read from */
+            seek(dp, pos);
+
+            /* read message */
+            bytes_read = read(dp, read_msg, RF_DATALEN);
+
+            /* (Optional) check whether read was successful or not */
+            if (check_reads && strncmp(read_msg, &(message[pos]), bytes_read) != 0) {
+                kprintf("Error: Incorrect data at pos %d: %d bytes read\n%s\n\n", pos, bytes_read, read_msg);
+            }
+
+            /* update position */
+            /* seek to random position */
+            pos = rand() % file_size;
+        }
+
+        /* Note end time */
+        end_time = (float) clktime + (float) count1000 / 1000.0;
+    }
+
+    if (!quiet) {
+        /* Print time elapsed */
+        kprintf("Time elapsed: %f seconds\n", end_time - begin_time);
+
+        kprintf("%s", border);
+        kprintf("Test completed");
+        kprintf("%s\n", border);
+    }
+
+    /* free memory for reading buffer */
+    freemem(read_msg, file_size);
+
+    /* close file */
+    close(dp);
+
+    /* reset cache_testsize to 0 to indicate to rfs_cache_store to default to MAX_CBLOCKS_ALLOCABLE as cache size */
+    rfs_cache_testsize = 0;
+
+    return end_time - begin_time;
+} 

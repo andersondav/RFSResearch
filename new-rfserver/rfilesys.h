@@ -181,6 +181,11 @@ struct	rf_msg_wres	{		/* Remote file write response	*/
 	RF_MSG_HDR			/* Header fields		*/
 	uint32	rf_pos;			/* Original position in file	*/
 	uint32	rf_len;			/* Number of bytes written	*/
+
+	/* for caching */
+	uint32 rf_size;	/* current size of the file */
+	char rf_data[RF_DATALEN]; /* file data */
+	uint32 bytes_returned; /* Number of bytes of file data returned */
 };
 #pragma pack()
 

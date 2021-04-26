@@ -122,7 +122,7 @@
   - Found that the function rfsndmsg() actually implements the first approach already, by substituting a specified file name in place. However, this function is used for messages whose reponse is only success or error, such as making a directory or truncating/deleting a file. Therefore, probably cannot use it for file size request without alteration.
 
 ### Issues/Improvements 2/4/2021
-1. ![](`.png) [2/3/2021 Issue #1](#issuesimprovements-232021)
+1. ![](+.png) [2/3/2021 Issue #1](#issuesimprovements-232021)
    - Implemented fix #1 where, in the case of a file size request, substituted the passed in file name as the message's file name. This seems to fix the problems.
    - Also implemented fix #2, so you can call for a file size request on a remote file object directly by calling control() on the descriptor. However, if you try to call any control func other than RFS_CTL_SIZE, you get an error.
 
@@ -635,3 +635,233 @@
 
 ### Questions
 - Why do we need to convert ints from host to network order (or vice versa) but not strings?
+
+## 4/2/2021
+### Notes
+- Pushed updated version of code to Github
+- How should closing a file affect the cache?
+  - Option 1: manually go through and de-allocate all cached blocks of the file
+  - Option 2: don't manually de-allocate, just let them naturally deallocate from lru eviction since they won't be used because the file is closed
+    - this raises the question of what happens if we open another file, as then the cache space is already filled with the cache blocks from the previous file...
+    - we could use the valid_bytes field, and set it to 0 for all blocks once the file is closed, but at that point would it be easier to just de-alloc them as well?
+    - also, if we don't de-alloc, then we run the risk of overwriting the previous cache block with a new one, so that previous one will be unable to be referenced again, which wastes memory
+    - we could fix this by adding some checks to rfs_cache_store that indicate if we are going to overwrite a cache block with the same file_start (either in array portion of cache list portion), then we should de-alloc that block
+    - this would result in the de-allocs being more evenly spaced out
+- Small addition to rfs_cache_fetch - if we find the right block in the cache_list but its valid_bytes are 0, we don't even try copying bytes, we just print a debug message and return that 0 bytes were copied
+  - This fits the logic that if valid_bytes == 0, is the same as a cache miss
+- Interesting note about removing duplicate block from cache_list
+  - Somewhat complicated to deal with removing duplicate block from cache_list because then have to re-search to determine where to insert new block
+  - An interesting solution is to just insert new block right before the duplicate, so that a fetch will always retrieve the new block. Then, the duplicate block will eventually be de-alloced by lru_list eviction
+
+### Issues/Improvements 4/2/2021
+1. ![](+.png) Dealing with closing of files
+    - In rflclose(), added code to iterate over all cached blocks and set their valid bytes to 0
+    - In rfs_cache_store(), added code to check if there was a duplicate cblock in the array portion we are trying to store at. If so, that means it was from a previously closed remote file, so added code to remove it from lru_list and then de-alloc it
+    - In insert_into_clist, tweaked code so that new block would be inserted before any blocks of equal file_start to it, so that it would be before the duplicate block. That way, the duplicate block would never be fetched first, so it will eventually be de-alloced through the lru_list (see notes above)
+    - Still needs testing...completed on [4/5](#issuesimprovements-452021)
+
+### Questions
+- When closing the file, is it better to de-alloc all the cache blocks all at once right when the file is closed, or is it sufficient to just mark all those blocks as invalidated, and de-alloc them as there are collisions with new cache blocks?
+  - One would make closing take significantly longer, but is that time noticeable/important?
+
+## 4/5/2021
+### Notes
+- What happens if you seek to beyond EOF?
+  - I assume since original implementation didn't track file lenght, it wouldn't error out
+  - Now that we do track file length, would be useful to tell user if their seek errored out
+
+### Issues/Improvements 4/5/2021
+1. ![](+.png) [4/2 Issue #1](#issuesimprovements-422021)
+    - Testing code that accounts for closing of files
+    - Found that we also need to update num_cblocks when we evict a block belonging to previous remote file...fixed
+    - Tested with replacing a block in array portion...seems to work fine
+    - Tested with replacing a block in list portion...seems to work as intended, the new block gets placed right in front of the old one
+2. ![](+.png) Improvement to rflseek
+    - As described in Notes above, we now have file size knowledge, so can alert user if they try to seek beyond EOF
+    - Implemented on [4/7 Issue #1](#issuesimprovements-472021)
+3. ![](+.png) General cleanup and modularization
+    - Add dedicated helper functions for removal from LRU list...done
+    - Tested with old lru_test...seems to work
+    - Tested with tests used for Issue #1...seems to work
+      - Interestingly, when a place in the array needs to be evicted due to new block being allocated there, we end up de-allocating the duplicate block AND the tail of the lru_list, which isn't really necessary, so could just de-allocate duplicate block first so that tail wouldn't get evicted also
+      - Updated so that tail wouldn't get evicted in this case
+      - Also found another problem where cache list was still getting populated with buffers from getmem()...fixed
+
+## 4/7/2021
+### Notes
+- Implementing improvement to rflseek
+- Cleaned up toggle of caching to save some memory of data structure definitions and functions using preprocessor statements
+- Still need to implement writes
+  - Probably best to start with write-through since it is more straightforward
+  - We can just add a conditionally compiled piece of code that calls "rfs_cache_write(pos, data)" into rflwrite that puts the data at the specified cache block
+    - if that position's cache block is not allocated currently, we can either bring it in or just drop the write request entirely (this also works with writes that go beyond the current EOF...)
+- How should truncation affect the cache
+  - We could approach it like closing the file, so we set all blocks whose file_start exceeds the new file length to have 0 valid bytes in them, so they will not be fetched anymore
+  - However, since in rflread() we check if a request goes beyond EOF anyways, this might not be necessary since requests to those blocks won't go through, and they can just get de-allocated naturally...
+- Some thoughts about multiple processes being able to access a remote file
+  - We could add a mutex to each rflcblk to control writing to the file (and by extension that file's cache)
+  - But reading would not require locking
+  - However, currently rflread() acquires the Rf_data mutex everytime, so reading would still not be concurrent
+    - Maybe should test what happens if we remove this acquiring to see what happens
+  - Not sure if I'll get to implementing this, but interesting to think about
+
+### Issues/Improvements 4/7/2021
+1. ![](+.png) [4/5 Issue #2](#issuesimprovements-452021)
+    - added a conditional check that occurs when caching is enabled that compares desired pos of rflseek to file size, and returns SYSERR if trying to seek beyond EOF
+    - when testing, ran into a problem of trying to seek to beginning of a file with no cached data, so it thinks file length is 0 so seeking to pos 0 should be invalid
+      - actually, this should be possible because we can seek to end of file to append
+    - once that was fixed, rflseek() seems to work in caching mode
+    - when caching mode is off, we no longer track file size locally, so there is no way to tell if a seek goes beyond EOF, which is reflected in testing
+2. ![](+.png) Caching Enabling/Disabling
+    - adding some more checks when caching is enabled
+    - in rflclose, we now invalidate all cache blocks only when caching is enabled
+    - in our definitions of struct rfdata and struct rflcblk, we only add the fields needed for caching if caching is enabled
+      - saves some space in these data structures if caching is not enabled
+    - all data structures defined in include/rfs_cache.h are defined only if caching is enabled
+      - to make this work, had to shuffle around some other things, such as no longer implementing a wrapper function for rflread. Instead, we just use preprocessor statements to choose which rfl_read version (cached or uncached) gets compiled
+      - also, the entire rfscache.c file only gets compiled if caching is enabled
+    - tests seem to work (as long as any debugging of cache structures is only conditionally compiled)
+
+## 4/9/2021
+### Notes
+- Going to begin implementing write-throughs
+  - First, need to do what we do in the beginning of cached version of rflread where we split request into multiple requests that each span only within one cache block
+  - One difference to consider is that with writes, we are given a buffer of data we want to write
+    - Ideally, we would want to always write a full cache block every time, so that the data we send is same length as data returned/stored
+    - However, if we get a write request to write bytes [500, 600], then we cannot send a full block of data to write because we don't know what those other bytes ([0, 499] and [601, 1023]) should be unless that block happens to be cached already
+    - Therefore, it is probably best to send the write request only for bytes [500, 600], but then alter the server so that it returns the entire cache block (bytes [0, 1023]). That way, we can always ensure we store/update entire blocks
+
+### Issues/Improvements 4/9/2021
+1. ![](+.png) Write-through Implementation
+    - Starting to make version of rflwrite() that utilizes caching
+    - Added code to pre-process the write request into either 1 or 2 sub-requests, each whose length only spans one cache block
+    - Similar to cached version of rflread(), we then loop through these requests, but this time we always send the request to the server, because we are using a write-through implementation
+    - I need to modify the server to always send an entire cache block's worth of data back for a write response, so that the Xinu client can always receive an entire cache block to store after the write has been processed
+    - Also still need to test that pre-processing works as intended...completed in [4/12 Issue #1](#issuesimprovements-4122021)
+    - Also in [4/12 Issue #1](#issuesimprovements-4122021), modified server code so it also returns the data written to client (only used by client when caching enabled)
+    - We need to continue modifying the server code so that the data returned will always be one full cache block, and then add code to Xinu client to store this returned data directly into the cache when a write() is performed...
+    - Write through implementation completed and tested on [4/13 and 4/14](#issuesimprovements-4132021)
+
+## 4/12/2021
+### Notes
+- Testing rflwrite() request pre-processing
+- write requests should also return file size in case we increase file size with out write
+- Tried to conditionally add rfsize field to read responses so it is not used when caching is disabled
+  - however, we'd have to alter the server as well in this case, and the server would have to know if xinu client has caching enabled for this to work properly
+  - overall, not worth it to conditionally add this field
+  - if possible, I'd like to be able to conditionally declare fields for write response because with caching we need to return 1024 extra data bytes, which shouldn't have to be returned if caching is disabled
+
+### Issues/Improvements 4/12/2021
+1. ![](+.png) [4/9 Issue #1](#issuesimprovements-492021)
+    - rflwrite() preprocessing works for basic write
+    - rflwrite() correctly does not allow to write beyond EOF (unless it's appending)
+    - rflwrite() running into some issues because file size doesn't get updated when a write request is sent...fixed
+    - Updated server side to return file size and written data so that we can update file size locally and (eventually) update cache with returned data
+    - Tested and pre-processing now works as intended
+    - Also, since I added the additional response fields to the end of the write response definition, I can conditionally compile these fields which allows us to save a good amount of space per request if we decide to disable caching
+    - Ran into some problems with copying the correct data into the write request which led to some very strange debugging messages, turned out mapping from request index to buffer index was off, but is now fixed.
+
+### Questions
+- What happens normally if we start writing beyond EOF?
+  - Linux doesn't let you seek beyond EOF, so there would be no way to write beyond EOF either
+
+## 4/13/2021
+### Notes
+- One thing I noticed is that when we parse the sub-requests, the second request usually has count 0, but since its position != 0, it still goes through and the server will return the block at that position, and this will be cached as currently implemented.
+  - If the count is 0 for this block, conceptually it is not really being written to, so it should not really be cached I think... 
+
+### Issues/Improvements 4/13/2021
+1. ![](+.png) [4/9 Issue #1](#issuesimprovements-492021)
+    - First, need to modify server code so that an entire cache block is always returned in a write response...done
+    - Need an extra field in write response struct to differentiate between bytes written to file and bytes returned by the request...added and tested
+    - I believe we can re-use rfs_cache_store function to store the write response's data into cache because the fields up to the rf_data for the read response and cached write response are the same
+    - To implement this, I need to edit the write response so that it's rf_pos is set to the start of the block, and so that the length is set to the length of the data rather than number of bytes written
+    - This works with a basic test, but when running with a larger test it fails (freezes at get_new_cblock())
+    - The reason that it fails is that, currently, we only add a cache block to the lru list once it has been fetched (which only occurs when reading). So, if we do a bunch of writes without reading, then we will run out of buffer space since none of these blocks will have been added to the lru list, thus they cannot be evicted.
+    - The solution is probably to add these blocks to the lru list on storing rather than when they are fetched...
+    - Did a (potentially temporary) fix that just updated the lru with the newly allocated block within rfs_cache_store itself if the response was of type rf_msg_wres, and this fixed the problems
+    - Finished implementing and tested on [4/14 Issue #1](#issuesimprovements-4142021)
+2. ![](-.png) Potential addition to rfs
+    - Linux has ftell to get the current file position
+    - Since we don't send seeks to the server anyways and the file position is just stored locally, this would be pretty simple to implement in Xinu
+    - However, Xinu doesn't have a tell() syscall, so not sure if this would be useful, or it may require adding a syscall, which may not be trivial
+
+## 4/14/2021
+### Notes
+- Continuing work on write-through implementation
+
+### Issues/Improvements 4/14/2021
+1. ![](+.png) [4/13 Issue #1](#issuesimprovements-4132021)
+    - Need to see if the temporary fix from 4/13 is sufficient, or if I should just change the code so that we add to lru list on cache stores for both reads and writes
+      - As far as I can tell, there does not seem to be any harm in updating lru list on cache stores, nor does there seem to be any harm in updating reads on fetches and writes on stores, so probably can keep it as is
+    - Need additional testing of write implementation
+      - Added sleep time so that once that writes are done, we turn off the server and the reads occur purely from cached data...worked
+      - To make this work, I needed to move the update_lru() call to be right before we store the block in its proper place in cache
+    - Need to figure out a way to avoid caching blocks of data whose corresponding write request was for 0 bytes
+      - Seems to work if I just terminate loop once we reach a sub-request with count == 0
+      - Also seems to work when I make the same fix to rflread()
+
+## 4/20/2021
+### Notes
+- Need to test the caching performance
+- General outline for tests
+  - As Professor Comer suggested, I am going to do 2 kinds of tests: 1 that reads a file sequentially, and 1 that reads a file randomly
+  - I will test the speed of completing the reads for the cached version of the rfs, and the uncached version
+  - Also, within the cached version, I will run tests with various cache sizes (number of cache blocks that are allowed to be allocated), such as 1, 2, 4, 8, 16, 32, 64, ...
+    - For simplicity, I am going to make it so that all the blocks can reside in the array portion of cache (MAX_RFS_CBLOCKS will equal MAX_CBLOCKS_ALLOCABLE)
+    - (Maybe) I can switch this up later on
+  - (Maybe) I can also run tests with different file sizes to use
+  - To start, I will just test the cached version of rflread(), meaning that I will not use the cached version of rflwrite() to pre-store blocks in the cache prior to reading
+    - To implement this, I will write to the file, then restart the Xinu client, and proceed from there.
+
+### Issues/Improvements 4/20/2021
+1. ![](+.png) Testing the RFS Cache
+    - Set up function rfs_cache_test() to test the performance of rfs with/without caching based on various parameters (sequential or random reading, file size, cache size, ...)
+    - Initial testing is promising! For a sequential test with 1500 reads: no caching takes ~1.7 sec, with caching takes only ~0.25 secs
+    - For a random test with 1500 reads: no caching takes ~1.43 sec, with caching takes only ~0.25 secs
+    - However, for random testing, we seem to have a problem where the incorrect data is read, because seeking in the beginning may fail is file size not initilized...fixed
+    - Need to test with larger variety of file sizes and cache sizes (especially to see how cache size impacts performance)
+    - Completed on [4/22](#issuesimprovements-4222021)
+
+## 4/21/2021
+### Notes
+- Regarding writing to files prior to testing...
+  - Originally, to ensure that both cached and uncached tests would start on an even playing field, I wanted to start with a pre-configured file that would not have to be written to at all prior to starting the test. This way, the cached version would not have to fill its cache writing to a file, and then have that file be closed, invalidating everything in its cache before the tests begin.
+  - However, due to the volume of reads I am planning to do, I do not think the time spent removing these blocks from cache will make much difference in the overall time, so I am going to try testing without having to restart the program if we have to write to the file in cached mode prior to testing.
+  - This will also save time testing due to not having to restart every time
+- Regarding setting the cache size...
+  - In the current implementation, the cache size is set by a preprocessor constant, MAX_CBLOCKS_ALLOCABLE. This means that if we want to re-run our tests with a different cache size, we have to change this constant, then recompile the entire program...
+  - For the sake of testing, I could introduce a global var "rfs_cache_size," and allow the lru_list functions to evict blocks based on this allowable size, and just set MAX_CBLOCKS_ALLOCABLE to a large value so there will always be enough blocks memory-wise. This would eliminate need to recompile every time...
+  - In addition, if we assume that the initial cache misses that come from opening a file in a rfl device that was just closed is negligible due to the large number of reads we do (as described above), we might not even need to restart the server either...
+  - IMPORTANT: If we do this and don't recompile every time we want to change cache size, we can only increment cache size, because if we decrement then the cache will be broken because it already holds more blocks than allowed
+- Regarding using the linked list portion of cache...
+  - I think I'll do one set of tests where MAX_RFS_CBLOCKS = MAX_BLOCKS_ALLOCABLE, so all the blocks can exist in array portion, and another set where only half can exist in array portion, to compare those differences as well
+
+### Issues/Improvements 4/21/2021
+1. ![](+.png) [4/20 Issue #1](#issuesimprovements-4202021)
+    - Edited the rfs_cache_test() function, mostly to make it so I don't have to restart/recompile every time I want to run a slightly different test
+    - As stated in Notes section above, changed it so that we don't have to restart program once file is written to properly
+      - Also, changed it so that we set up file every time test is run, so that we don't have to worry if the file is correctly setup
+    - Also, changed random tests to not randomly jump to start of a single block, but rather to any random point in the file, as this would seem more accurate.
+    - Tested all these changes to make sure the test script still works properly
+    - Now all there is to do is to determine what tests I should run and then run them
+    
+## 4/22/2021
+### Notes
+
+### Issues/Improvements 4/22/2021
+1. ![](+.png) [4/20 Issue #1](#issuesimprovements-4202021)
+    - Making some final fixes to test script
+    - Fixed the part where we write to the file so it works even if file size isn't multiple of RF_DATALEN
+    - Ready to test!
+    - Created a Google Doc to summarize test results
+    - Initial trend is very interesting...it seems that the overhead of impelmenting caching slows down rfs compared to no caching...unless the cache is big enough to hold the majority of the file, in which case we see a big speedup
+    - This definitely makes sense for sequential reading, because if the cache can't hold the entire file, then we will always have a cache miss when we try reading sequentially, so the cache does nothing useful and provides additional overhead
+    - For random reading, I noticed a similar trend, except that the cache did get faster as cache size increased. Still, it was never faster than uncached version until cache size = file size
+    - This makes sense as well, due to how I implemented the cache. Since the majority of reads will require two cache blocks, this would require 2 network requests if the cache doesn't have either block, which would obviously be much slower than the uncached version, which only would need 1 network request. The chances that a block is in cache also doesn't really get to be meaningful until cache size is at least half of file size, at which we see a good jump in speed.
+    - I also tested the impact of the cache list, to see if there was any noticeable slowdown when the entire file couldn't be accessed via direct indexing, but rather through a linear search through the linked list
+    - Turns out there is quite a noticeable difference, as when the array portion can only hold half the file, the cached version is still slower than the uncached version, even when the cache size reaches the file size.
+    - So it seems that caching is only worth it if the cache is large enough that most of the file can be cached in the array portion of the cache
+    - However, other factors to consider is the location of the server relative to the client (in other words, the networking delay) and the nature of the reads is very important as well (ex: the cache performs very poorly on the extreme case of sequential reading)
+    - I believe in these tests, the server and client are on the same subnet, so networking delay was pretty low
+

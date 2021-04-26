@@ -40,10 +40,12 @@ struct	rfdata	{
 	bool8	rf_registered;		/* Has UDP port been registered?*/
 
 	/* the following fields are for caching */
+	#if RFS_CACHING_ENABLED
 	bpid32 buffpoolid;			/* the pool ID for the buffer where cache blocks are allocated from */
 	uint32 num_cblocks;			/* the current number of cached blocks that have been allocated so far */
 	struct rfs_cblock * lru_head;	/* the head (most recently used) cache block */
 	struct rfs_cblock * lru_tail; 	/* the tail (least recently used) cache block */
+	#endif
 };
 
 extern	struct	rfdata	Rf_data;
@@ -62,9 +64,11 @@ struct	rflcblk	{
 					/*	access or both		*/
 
 	/* used for caching purposes */
+	#if RFS_CACHING_ENABLED
 	uint32 rfsize;								/* file size */
 	struct rfs_cblock *cache [MAX_RFS_CBLOCKS];  /* the array portion of the cache for this remote file */
 	struct rfs_cblock *cache_list; 		/* linked list portion of the cache for this remote file */
+	#endif
 };
 
 extern	struct	rflcblk	rfltab[];	/* Remote file control blocks	*/
@@ -165,6 +169,7 @@ struct	rf_msg_rres	{		/* Remote file read reply	*/
 	uint32	rf_pos;			/* Position in file		*/
 	uint32	rf_len;			/* Number of bytes that follow	*/
 					/*   (0 for EOF)		*/
+	
 	uint32 rf_size;  /* current size of file (useful for caching purposes) */
 	char	rf_data[RF_DATALEN];	/* Array containing data from	*/
 					/*   the file			*/
@@ -193,6 +198,12 @@ struct	rf_msg_wres	{		/* Remote file write response	*/
 	RF_MSG_HDR			/* Header fields		*/
 	uint32	rf_pos;			/* Original position in file	*/
 	uint32	rf_len;			/* Number of bytes written	*/
+
+	#if RFS_CACHING_ENABLED
+	uint32 rf_size;	/* current size of the file */
+	char rf_data[RF_DATALEN]; /* file data */
+	uint32 bytes_returned; /* number of bytes written into file */
+	#endif
 };
 #pragma pack()
 

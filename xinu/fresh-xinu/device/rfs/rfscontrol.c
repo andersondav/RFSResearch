@@ -251,9 +251,11 @@ devcall	rfscontrol (
 		}
 
 		/* if called from a rfl device, update it's local file size */
+		#if RFS_CACHING_ENABLED
 		if (isRFILE(devptr->dvnum)) {
 			(&rfltab[devptr->dvnum-RFILE0])->rfsize = arg1;
 		}
+		#endif
 		break;
 
 	/* Make a directory */
@@ -294,10 +296,14 @@ devcall	rfscontrol (
 			return SYSERR;
 		} else {
 			/* update file size if called by file device directly */
+			#if RFS_CACHING_ENABLED
 			if (isRFILE(devptr->dvnum)) {
 				(&rfltab[devptr->dvnum-RFILE0])->rfsize = ntohl(sres.rf_size);
+				#if RFS_CACHE_DEBUG
 				kprintf("Updated file size to be %u bytes\n", (&rfltab[devptr->dvnum-RFILE0])->rfsize);
+				#endif
 			}
+			#endif
 
 			signal(Rf_data.rf_mutex);
 			return ntohl(sres.rf_size);

@@ -2,6 +2,7 @@
 
 #include <xinu.h>
 
+#if !(RFS_CACHING_ENABLED)
 /*------------------------------------------------------------------------
  * rflread  -  Read data from a remote file
  *------------------------------------------------------------------------
@@ -88,10 +89,6 @@ devcall	rflread (
 		return SYSERR;
 	}
 
-	/* Copy data to application buffer and update file position */
-	kprintf("The returned file size was %u bytes!\n", ntohl(resp.rf_size));
-	rfptr->rfsize = ntohl(resp.rf_size);
-
 	/* Determine number of bytes to copy into buffer */
 	uint32 copy_length;
 	if (ntohl(resp.rf_len) > count) {
@@ -119,9 +116,9 @@ devcall	rflread (
 	//return ntohl(resp.rf_len);
 	return copy_length;
 }
-
+#else
 /* updated implementation that utilizes caching */
-devcall	rflread_cached (
+devcall	rflread (
 	  struct dentry	*devptr,	/* Entry in device switch table	*/
 	  char	*buff,			/* Buffer of bytes		*/
 	  int32	count 			/* Count of bytes to read	*/
@@ -219,8 +216,8 @@ devcall	rflread_cached (
 		positions[1] = rfptr->rfpos;
 		counts[1] = count;
 
-		positions[2] = NULL;
-		counts[2] = NULL;
+		positions[2] = 0;
+		counts[2] = 0;
 	}
 
 	#if RFS_CACHE_DEBUG
@@ -234,7 +231,7 @@ devcall	rflread_cached (
 	/* loop through all valid requests */
 	for (i = 1; i < 3; i++) {
 		/* break once we reach an empty request */
-		if (positions[i] == NULL && counts[i] == NULL) {
+		if (counts[i] == 0) {
 			break;
 		}
 
@@ -295,7 +292,9 @@ devcall	rflread_cached (
 		}
 
 		/* Update file size */
+		#if RFS_CACHE_DEBUG
 		kprintf("The returned file size was %u bytes!\n", ntohl(resp.rf_size));
+		#endif
 		rfptr->rfsize = ntohl(resp.rf_size);
 
 		/* TODO: Cache data received from request and re-fetch from cache */
@@ -324,17 +323,18 @@ devcall	rflread_cached (
 	//return ntohl(resp.rf_len);
 	return count;
 }
+#endif
 
-/* wrapper function that is mapped to read in the device switch table */
-devcall	rflread_wrapper (
-	  struct dentry	*devptr,	/* Entry in device switch table	*/
-	  char	*buff,			/* Buffer of bytes		*/
-	  int32	count 			/* Count of bytes to read	*/
-	)
-{
-	#if RFS_CACHING_ENABLED
-	return rflread_cached(devptr, buff, count);
-	#else
-	return rflread(devptr, buff, count);
-	#endif
-}
+// /* wrapper function that is mapped to read in the device switch table */
+// devcall	rflread_wrapper (
+// 	  struct dentry	*devptr,	/* Entry in device switch table	*/
+// 	  char	*buff,			/* Buffer of bytes		*/
+// 	  int32	count 			/* Count of bytes to read	*/
+// 	)
+// {
+// 	#if RFS_CACHING_ENABLED
+// 	return rflread_cached(devptr, buff, count);
+// 	#else
+// 	return rflread(devptr, buff, count);
+// 	#endif
+// }

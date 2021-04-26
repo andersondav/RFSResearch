@@ -112,10 +112,27 @@ void	rswrite (
 		return;
 	}
 
+	/** Added for cache implementation **/
+	/* save bytes written in response length */
+	resptr->rf_len = htonl(nbytes);
+
+	/* set file size */
+	retval = fstat(fd, &buf);
+	resptr->rf_size = htonl(buf.st_size);
+
+	/* return the cache block corresponding to the written data */
+	lseek(fd, (ntohl(reqptr->rf_pos) / RF_DATALEN) * RF_DATALEN, SEEK_SET);
+	memset(resptr->rf_data, NULLCH, RF_DATALEN);
+	nbytes = read(fd, resptr->rf_data, RF_DATALEN);
+
+	/* save bytes returned */
+	resptr->bytes_returned = htonl(nbytes);
+	/** **/
+
 	/* set bytes read */
 	
 	resptr->rf_pos = reqptr->rf_pos;
-	resptr->rf_len = htonl(nbytes);
+	// resptr->rf_len = htonl(nbytes);	/* set earlier */
 	sndok(	(struct rf_msg_hdr *)reqptr,
 		(struct rf_msg_hdr *)resptr,
 		sizeof(struct rf_msg_wres) );

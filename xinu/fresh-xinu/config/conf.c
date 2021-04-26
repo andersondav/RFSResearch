@@ -71,70 +71,70 @@ struct	dentry	devtab[NDEVS] =
 /* RFILE0 is rfl */
 	{ 7, 0, "RFILE0",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE1 is rfl */
 	{ 8, 1, "RFILE1",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE2 is rfl */
 	{ 9, 2, "RFILE2",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE3 is rfl */
 	{ 10, 3, "RFILE3",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE4 is rfl */
 	{ 11, 4, "RFILE4",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE5 is rfl */
 	{ 12, 5, "RFILE5",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE6 is rfl */
 	{ 13, 6, "RFILE6",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE7 is rfl */
 	{ 14, 7, "RFILE7",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE8 is rfl */
 	{ 15, 8, "RFILE8",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
 /* RFILE9 is rfl */
 	{ 16, 9, "RFILE9",
 	  (void *)rflinit, (void *)ioerr, (void *)rflclose,
-	  (void *)rflread_wrapper, (void *)rflwrite, (void *)rflseek,
+	  (void *)rflread, (void *)rflwrite, (void *)rflseek,
 	  (void *)rflgetc, (void *)rflputc, (void *)rfscontrol,
 	  (void *)0x0, (void *)ionull, 0 },
 
